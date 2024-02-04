@@ -1,7 +1,6 @@
 package controllers
 
 import (
-	"encoding/json"
 	"github.com/gorilla/mux"
 	"net/http"
 	"nmteasy_backend/models"
@@ -18,7 +17,7 @@ func GetHistoryQuestions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(historyQuestions)
+	utils.RespondWithJSON(w, http.StatusOK, historyQuestions)
 }
 
 func GetHistoryLessons(w http.ResponseWriter, r *http.Request) {
@@ -78,5 +77,5 @@ func GetHistoryLessons(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	json.NewEncoder(w).Encode(result)
+	utils.RespondWithJSON(w, http.StatusOK, result)
 }

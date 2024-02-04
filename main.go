@@ -3,8 +3,10 @@ package main
 import (
 	"github.com/joho/godotenv"
 	"net/http"
+	"nmteasy_backend/common"
 	"nmteasy_backend/controllers"
 	"nmteasy_backend/models"
+	"os"
 )
 
 func main() {
@@ -18,6 +20,7 @@ func main() {
 	}
 
 	models.ConnectDatabase()
+	common.SECRET_KEY = os.Getenv("SECRET_KEY")
 
 	server.ListenAndServe()
 }
