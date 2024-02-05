@@ -26,6 +26,17 @@ type HistoryLesson struct {
 	CreatedAt time.Time         `json:"created_at"`
 	UpdatedAt time.Time         `json:"updated_at"`
 }
+
+type HistoryQuestionExplanation struct {
+	ID                uuid.UUID `json:"id" gorm:"primary_key"`
+	Explanation       string    `json:"explanation"`
+	HistoryQuestionID uuid.UUID `json:"history_question_id"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+
+	HistoryQuestion HistoryQuestion `json:"history_question"`
+}
+
 type HistoryLessonWithProperTitle struct {
 	ID          uuid.UUID         `json:"id" gorm:"primary_key"`
 	Title       string            `json:"title"`

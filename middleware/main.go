@@ -1,18 +1,16 @@
 package middleware
 
 import (
-	"errors"
 	"fmt"
 	"github.com/golang-jwt/jwt"
 	"net/http"
 	"nmteasy_backend/common"
 	"nmteasy_backend/utils"
-	"strings"
 )
 
 func Protected(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token, err := GetToken(r)
+		token, err := utils.GetToken(r)
 		if err != nil || token == "" {
 			utils.RespondWithError(w, http.StatusForbidden, "no token found")
 			return
@@ -34,12 +32,4 @@ func Protected(next http.HandlerFunc) http.HandlerFunc {
 
 		next.ServeHTTP(w, r)
 	}
-}
-
-func GetToken(r *http.Request) (string, error) {
-	h := r.Header.Get("Authorization")
-	if h == "" || !strings.Contains(h, "Bearer ") {
-		return "", errors.New("missing token")
-	}
-	return strings.TrimPrefix(h, "Bearer "), nil
 }

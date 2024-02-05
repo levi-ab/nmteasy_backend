@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/golang-jwt/jwt"
 	"golang.org/x/crypto/bcrypt"
@@ -64,4 +65,54 @@ func GenerateJWT(email string) (string, error) {
 		return "", err
 	}
 	return tokenString, nil
+}
+
+func GetCurrentUser(r *http.Request) *models.User {
+	token, err := GetToken(r)
+	if err != nil || token == "" {
+		return nil
+	}
+
+	mySigningKey := []byte(common.SECRET_KEY)
+	parsedToken, err := parseToken(token, mySigningKey)
+	if err != nil || parsedToken == nil {
+		return nil
+	}
+
+	if claims, ok := parsedToken.Claims.(jwt.MapClaims); ok {
+		if email, ok := claims["email"].(string); ok && email != "" {
+			user, err := getUserByEmail(email)
+			if err == nil {
+				return user
+			}
+		}
+	}
+
+	return nil
+}
+
+func parseToken(tokenString string, signingKey []byte) (*jwt.Token, error) {
+	return jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if method, ok := token.Method.(*jwt.SigningMethodHMAC); !ok || method != jwt.SigningMethodHS256 {
+			return nil, fmt.Errorf("invalid token signing method")
+		}
+		return signingKey, nil
+	})
+}
+
+func getUserByEmail(email string) (*models.User, error) {
+	var user models.User
+	err := models.DB.Where("email = ?", email).Find(&user).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func GetToken(r *http.Request) (string, error) {
+	h := r.Header.Get("Authorization")
+	if h == "" || !strings.Contains(h, "Bearer ") {
+		return "", errors.New("missing token")
+	}
+	return strings.TrimPrefix(h, "Bearer "), nil
 }

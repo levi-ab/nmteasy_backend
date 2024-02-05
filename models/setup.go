@@ -26,6 +26,7 @@ func ConnectDatabase() {
 
 	database.AutoMigrate(&HistoryQuestion{})
 	database.AutoMigrate(&HistoryLesson{})
+	database.AutoMigrate(&HistoryQuestionExplanation{})
 	database.AutoMigrate(&User{})
 
 	DB = database

@@ -48,11 +48,11 @@ func SignUp(w http.ResponseWriter, r *http.Request) {
 
 	models.DB.Where("username = ?", user.Username).First(&dbuser)
 
-	//checks if username is already registered or not
-	if dbuser.Username != "" {
-		utils.RespondWithError(w, http.StatusBadRequest, "username already exists")
-		return
-	}
+	////checks if username is already registered or not
+	//if dbuser.Username != "" {
+	//	utils.RespondWithError(w, http.StatusBadRequest, "username already exists")
+	//	return
+	//}
 
 	user.Password, err = utils.GenerateHashPassword(user.Password)
 	if err != nil {
@@ -101,7 +101,7 @@ func SignIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.RespondWithJSON(w, http.StatusOK, token)
+	utils.RespondWithJSON(w, http.StatusOK, map[string]interface{}{"token": token, "user": &authUser})
 }
 
 func checkPasswordHash(password, hash string) bool {

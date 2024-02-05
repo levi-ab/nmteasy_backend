@@ -79,3 +79,15 @@ func GetHistoryLessons(w http.ResponseWriter, r *http.Request) {
 
 	utils.RespondWithJSON(w, http.StatusOK, result)
 }
+
+func GetHistoryQuestionExplanation(w http.ResponseWriter, r *http.Request) {
+	var explanation models.HistoryQuestionExplanation
+	paramValue := mux.Vars(r)["questionID"]
+
+	if err := models.DB.Where("history_question_id = ?", paramValue).Find(&explanation).Error; err != nil {
+		utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get question")
+		return
+	}
+
+	utils.RespondWithJSON(w, http.StatusOK, explanation)
+}
