@@ -27,6 +27,14 @@ type HistoryLesson struct {
 	UpdatedAt time.Time         `json:"updated_at"`
 }
 
+type HistoryLessonWithAnalytic struct {
+	ID                    uuid.UUID             `json:"id" gorm:"primary_key"`
+	Title                 string                `json:"title"`
+	CreatedAt             time.Time             `json:"created_at"`
+	UpdatedAt             time.Time             `json:"updated_at"`
+	HistoryLessonAnalytic HistoryLessonAnalytic `json:"history_lesson_analytic"`
+}
+
 type HistoryQuestionExplanation struct {
 	ID                uuid.UUID `json:"id" gorm:"primary_key"`
 	Explanation       string    `json:"explanation"`
@@ -38,11 +46,12 @@ type HistoryQuestionExplanation struct {
 }
 
 type HistoryLessonWithProperTitle struct {
-	ID          uuid.UUID         `json:"id" gorm:"primary_key"`
-	Title       string            `json:"title"`
-	ProperTitle string            `json:"proper_title"`
-	Questions   []HistoryQuestion `json:"questions"`
-	CreatedAt   time.Time         `json:"created_at"`
+	ID                    uuid.UUID             `json:"id" gorm:"primary_key"`
+	Title                 string                `json:"title"`
+	ProperTitle           string                `json:"proper_title"`
+	HistoryLessonAnalytic HistoryLessonAnalytic `json:"history_lesson_analytic"`
+	Questions             []HistoryQuestion     `json:"questions"`
+	CreatedAt             time.Time             `json:"created_at"`
 }
 
 var HistoryTopics = map[string]string{
