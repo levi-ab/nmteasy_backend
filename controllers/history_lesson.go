@@ -30,7 +30,7 @@ func GetHistoryLessons(w http.ResponseWriter, r *http.Request) {
 	var historyLessons []models.HistoryLessonWithProperTitle
 
 	query := `
-    SELECT h.id, h.title, h.created_at, a.id as analytic_id, a.user_id, COALESCE(a.right_answers_count, 0), COALESCE(a.questions_count, 0),  COALESCE(a.created_at, '0001-01-01'::timestamp) as analytic_created_at,  COALESCE(a.updated_at, '0001-01-01'::timestamp) as analytic_updated_at
+    SELECT h.id, h.title, h.created_at, a.id as analytic_id, a.user_id, COALESCE(a.right_answers_count, 0), COALESCE(a.questions_count, 0),  COALESCE(a.created_at, '0001-01-01'::timestamp) as analytic_created_at,  COALESCE(a.updated_at, '0001-01-01'::timestamp) as analytic_updated_at, COALESCE(a.time_spent,0) as time_spent
     FROM history_lessons h
     LEFT JOIN history_lesson_analytics a ON h.id = a.history_lesson_id AND a.user_id = ?
     ORDER BY h.created_at, h.title
@@ -58,6 +58,7 @@ func GetHistoryLessons(w http.ResponseWriter, r *http.Request) {
 			&analytic.QuestionsCount,
 			&analytic.CreatedAt,
 			&analytic.UpdatedAt,
+			&analytic.TimeSpent,
 		); err != nil {
 			utils.RespondWithError(w, http.StatusInternalServerError, "Failed to scan rows")
 			return

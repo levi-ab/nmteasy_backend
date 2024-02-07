@@ -30,6 +30,7 @@ func ConnectDatabase() {
 	database.AutoMigrate(&User{})
 	database.AutoMigrate(&HistoryLessonAnalytic{})
 	database.AutoMigrate(&Complaint{})
+	database.AutoMigrate(&HistoryQuestionAnalytic{})
 
 	DB = database
 }

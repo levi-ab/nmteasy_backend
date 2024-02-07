@@ -60,7 +60,7 @@ var HistoryTopics = map[string]string{
 	"dyrektorija_unr":                                          "Українська революція. Директорія УНР",
 	"period_ghetmanatu":                                        "Українська революція. Період Гетьманату",
 	"zahidnoukrayinski_zemli_v_mizhvoyennij_period":            "Західноукраїнські землі в міжвоєнний період",
-	"utverdzhennya_bilshovickogo_rezhimu_v_ukrayinii":          "Утвердження більшовицького тоталітарного режиму в Україні",
+	"utverdzhennya_bilshovickogo_rezhimu_v_ukrayini":           "Утвердження більшовицького тоталітарного режиму в Україні",
 	"vstanovlennya_komunistichnogo_rezhimu_v_ukrayini":         "Встановлення комуністичного тоталітарного режиму в Україні",
 	"pochatok_drughoyi_svitovoyi_vijny_1939_1941":              "Початок Другої світової війни (1939–1941)",
 	"rukh_oporu_1941_1943":                                     "Друга світова війна: Рух Опору (1941–1943)",

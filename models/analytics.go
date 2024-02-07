@@ -19,6 +19,19 @@ type HistoryLessonAnalytic struct {
 	User          User          `json:"-" gorm:"-"`
 }
 
+type HistoryQuestionAnalytic struct {
+	ID                uuid.UUID `json:"id" gorm:"primary_key"`
+	HistoryQuestionID uuid.UUID `json:"history_question_id" gorm:"history_question_id"`
+	UserID            uuid.UUID `json:"user_id"`
+	AnsweredRight     bool      `json:"answered_right" gorm:"question_id"`
+	TimeSpent         int       `json:"time_spent"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+
+	HistoryQuestion HistoryQuestion `json:"-" gorm:"-"`
+	User            User            `json:"-" gorm:"-"`
+}
+
 type Complaint struct {
 	ID            uuid.UUID `json:"id" gorm:"primary_key"`
 	UserID        uuid.UUID `json:"user_id"`
