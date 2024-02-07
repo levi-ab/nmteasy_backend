@@ -10,6 +10,11 @@ import (
 
 func AddHistoryLessonAnalytics(w http.ResponseWriter, r *http.Request) {
 	user := utils.GetCurrentUser(r)
+	if user == nil {
+		utils.RespondWithError(w, http.StatusForbidden, "wrong token")
+		return
+	}
+
 	type FullHistoryLessonAnalytic struct {
 		LessonAnalytic struct {
 			HistoryLessonID   uuid.UUID `json:"history_lesson_id"`
@@ -25,11 +30,6 @@ func AddHistoryLessonAnalytics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var model FullHistoryLessonAnalytic
-
-	if user == nil {
-		utils.RespondWithError(w, http.StatusForbidden, "wrong token")
-		return
-	}
 
 	err := json.NewDecoder(r.Body).Decode(&model)
 	if err != nil {
@@ -103,4 +103,46 @@ func AddHistoryLessonAnalytics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.RespondWithJSON(w, http.StatusOK, nil)
+}
+
+func GetWeeklyQuestionAnalytics(w http.ResponseWriter, r *http.Request) {
+	user := utils.GetCurrentUser(r)
+	if user == nil {
+		utils.RespondWithError(w, http.StatusForbidden, "wrong token")
+		return
+	}
+
+	//currentDay := time.Now().Weekday()
+
+	// Calculate the number of days to subtract to get to the start of the week
+	//daysToSubtract := int(currentDay)
+
+	// Use Gorm to execute the SQL query
+	var analytics []struct {
+		DayOfWeek string `gorm:"day_of_week"`
+		Count     int    `gorm:"count"`
+	}
+
+	if err := models.DB.Raw(`
+        SELECT 
+    date_trunc('day', created_at) AS day_of_week, 
+    COUNT(*) AS count
+FROM history_question_analytics
+WHERE 
+    user_id = ? AND
+    created_at >= current_date - interval '7 days'
+GROUP BY day_of_week
+ORDER BY day_of_week;
+    `, user.ID).Scan(&analytics).Error; err != nil {
+		utils.RespondWithError(w, http.StatusInternalServerError, "failed to get analytics")
+		return
+	}
+
+	// Convert the result to a map for easy access
+	result := make(map[string]int)
+	for _, entry := range analytics {
+		result[entry.DayOfWeek] = entry.Count
+	}
+
+	utils.RespondWithJSON(w, http.StatusOK, result)
 }
