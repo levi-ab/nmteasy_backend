@@ -6,11 +6,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"net/http"
 	"nmteasy_backend/models"
+	"nmteasy_backend/models/migrated_models"
 	"nmteasy_backend/utils"
 )
 
 func SignUp(w http.ResponseWriter, r *http.Request) {
-	var user models.User
+	var user migrated_models.User
 	err := json.NewDecoder(r.Body).Decode(&user)
 	if err != nil {
 		utils.RespondWithError(w, http.StatusBadRequest, "failed to decode the body")
@@ -37,7 +38,7 @@ func SignUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var dbuser models.User
+	var dbuser migrated_models.User
 	models.DB.Where("email = ?", user.Email).First(&dbuser)
 
 	//checks if email is already registered or not
@@ -81,7 +82,7 @@ func SignIn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var authUser models.User
+	var authUser migrated_models.User
 	models.DB.Where("email = ?", authDetails.Email).First(&authUser)
 	if authUser.Email == "" {
 		utils.RespondWithError(w, http.StatusBadRequest, "no user found")

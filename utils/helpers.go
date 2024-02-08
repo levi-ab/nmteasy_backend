@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"nmteasy_backend/common"
 	"nmteasy_backend/models"
+	"nmteasy_backend/models/migrated_models"
 	"strings"
 	"time"
 )
@@ -34,7 +35,7 @@ func FormatLessonTopic(input string) (string, string) {
 	topicKey := parts[0]
 	number := parts[1]
 
-	topic, ok := models.HistoryTopics[topicKey]
+	topic, ok := models.Topics[topicKey]
 	if !ok {
 		return input, "" // Return the original input if the key is not found
 	}
@@ -67,7 +68,7 @@ func GenerateJWT(email string) (string, error) {
 	return tokenString, nil
 }
 
-func GetCurrentUser(r *http.Request) *models.User {
+func GetCurrentUser(r *http.Request) *migrated_models.User {
 	token, err := GetToken(r)
 	if err != nil || token == "" {
 		return nil
@@ -100,8 +101,8 @@ func parseToken(tokenString string, signingKey []byte) (*jwt.Token, error) {
 	})
 }
 
-func getUserByEmail(email string) (*models.User, error) {
-	var user models.User
+func getUserByEmail(email string) (*migrated_models.User, error) {
+	var user migrated_models.User
 	err := models.DB.Where("email = ?", email).Find(&user).Error
 	if err != nil {
 		return nil, err

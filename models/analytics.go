@@ -5,31 +5,25 @@ import (
 	"time"
 )
 
-type HistoryLessonAnalytic struct {
+type LessonAnalytic struct {
 	ID                uuid.UUID `json:"id" gorm:"primary_key"`
-	HistoryLessonID   uuid.UUID `json:"history_lesson_id"`
+	HistoryLessonID   uuid.UUID `json:"lesson_id"`
 	UserID            uuid.UUID `json:"user_id"`
 	RightAnswersCount int       `json:"right_answers_count"`
 	QuestionsCount    int       `json:"questions_count"`
 	TimeSpent         int       `json:"time_spent"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
-
-	HistoryLesson HistoryLesson `json:"-" gorm:"-"`
-	User          User          `json:"-" gorm:"-"`
 }
 
-type HistoryQuestionAnalytic struct {
-	ID                uuid.UUID `json:"id" gorm:"primary_key"`
-	HistoryQuestionID uuid.UUID `json:"history_question_id" gorm:"history_question_id"`
-	UserID            uuid.UUID `json:"user_id"`
-	AnsweredRight     bool      `json:"answered_right" gorm:"question_id"`
-	TimeSpent         int       `json:"time_spent"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
-
-	HistoryQuestion HistoryQuestion `json:"-" gorm:"-"`
-	User            User            `json:"-" gorm:"-"`
+type QuestionAnalytic struct {
+	ID            uuid.UUID `json:"id" gorm:"primary_key"`
+	QuestionID    uuid.UUID `json:"question_id"`
+	UserID        uuid.UUID `json:"user_id"`
+	AnsweredRight bool      `json:"answered_right"`
+	TimeSpent     int       `json:"time_spent"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type Complaint struct {

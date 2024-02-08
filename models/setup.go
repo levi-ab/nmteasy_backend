@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"nmteasy_backend/models/migrated_models"
 	"os"
 )
 
@@ -24,13 +25,20 @@ func ConnectDatabase() {
 		panic("Failed to connect to database")
 	}
 
-	database.AutoMigrate(&HistoryQuestion{})
-	database.AutoMigrate(&HistoryLesson{})
-	database.AutoMigrate(&HistoryQuestionExplanation{})
-	database.AutoMigrate(&User{})
-	database.AutoMigrate(&HistoryLessonAnalytic{})
+	database.AutoMigrate(&migrated_models.User{})
 	database.AutoMigrate(&Complaint{})
-	database.AutoMigrate(&HistoryQuestionAnalytic{})
+
+	database.AutoMigrate(&migrated_models.HistoryQuestion{})
+	database.AutoMigrate(&migrated_models.HistoryLesson{})
+	database.AutoMigrate(&migrated_models.HistoryQuestionExplanation{})
+	database.AutoMigrate(&migrated_models.HistoryLessonAnalytic{})
+	database.AutoMigrate(&migrated_models.HistoryQuestionAnalytic{})
+
+	database.AutoMigrate(&migrated_models.UkrainianQuestion{})
+	database.AutoMigrate(&migrated_models.UkrainianLesson{})
+	database.AutoMigrate(&migrated_models.UkrainianQuestionExplanation{})
+	database.AutoMigrate(&migrated_models.UkrainianLessonAnalytic{})
+	database.AutoMigrate(&migrated_models.UkrainianQuestionAnalytic{})
 
 	DB = database
 }

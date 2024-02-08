@@ -2,34 +2,42 @@ package controllers
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
+	"gorm.io/gorm"
 	"net/http"
 	"nmteasy_backend/models"
+	"nmteasy_backend/models/migrated_models"
 	"nmteasy_backend/utils"
+	"time"
 )
 
-func AddHistoryLessonAnalytics(w http.ResponseWriter, r *http.Request) {
+func AddLessonAnalytics(w http.ResponseWriter, r *http.Request) {
 	user := utils.GetCurrentUser(r)
 	if user == nil {
 		utils.RespondWithError(w, http.StatusForbidden, "wrong token")
 		return
 	}
 
-	type FullHistoryLessonAnalytic struct {
+	lessonType := mux.Vars(r)["lessonType"]
+
+	type FullLessonAnalytic struct {
 		LessonAnalytic struct {
-			HistoryLessonID   uuid.UUID `json:"history_lesson_id"`
+			LessonID          uuid.UUID `json:"lesson_id"`
 			TimeSpent         int       `json:"time_spent"`
 			RightAnswersCount int       `json:"right_answers_count"`
 			QuestionsCount    int       `json:"questions_count"`
-		} `json:"history_lesson_analytic"`
+		} `json:"lesson_analytic"`
 		QuestionAnalytics []struct {
-			HistoryQuestionID uuid.UUID `json:"history_question_id"`
-			TimeSpent         int       `json:"time_spent"`
-			AnsweredRight     bool      `json:"answered_right"`
-		} `json:"history_question_analytics"`
+			QuestionID    uuid.UUID `json:"question_id"`
+			TimeSpent     int       `json:"time_spent"`
+			AnsweredRight bool      `json:"answered_right"`
+		} `json:"question_analytics"`
 	}
 
-	var model FullHistoryLessonAnalytic
+	var model FullLessonAnalytic
 
 	err := json.NewDecoder(r.Body).Decode(&model)
 	if err != nil {
@@ -37,69 +45,92 @@ func AddHistoryLessonAnalytics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var historyLessonAnalytic models.HistoryLessonAnalytic
-	historyLessonAnalytic.HistoryLessonID = model.LessonAnalytic.HistoryLessonID
-	historyLessonAnalytic.RightAnswersCount = model.LessonAnalytic.RightAnswersCount
-	historyLessonAnalytic.TimeSpent = model.LessonAnalytic.TimeSpent
-	historyLessonAnalytic.QuestionsCount = model.LessonAnalytic.QuestionsCount
+	var existingLessonAnalytic models.LessonAnalytic
 
-	var existingHistoryLessonAnalytic models.HistoryLessonAnalytic
-	err = models.DB.Where("user_id = ? AND history_lesson_id = ?", user.ID, historyLessonAnalytic.HistoryLessonID).Find(&existingHistoryLessonAnalytic).Error
-	if err != nil {
-		utils.RespondWithError(w, http.StatusInternalServerError, "failed to get the analytic for lesson")
-		return
+	query := fmt.Sprintf(`SELECT id, user_id, right_answers_count,questions_count, time_spent,  created_at, updated_at, %s_lesson_id as lesson_id
+								FROM %s_lesson_analytics WHERE %s_lesson_id = ? AND user_id = ?`, lessonType, lessonType, lessonType)
+
+	if err := models.DB.Raw(query, model.LessonAnalytic.LessonID, user.ID).Scan(&existingLessonAnalytic).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get explanation")
+			return
+		}
 	}
 
-	if existingHistoryLessonAnalytic.ID == uuid.Nil {
-		historyLessonAnalytic.ID = uuid.New()
-		historyLessonAnalytic.UserID = user.ID
-		err = models.DB.Save(&historyLessonAnalytic).Error
-		if err != nil {
+	now := time.Now().Format("2006-01-02 15:04:05.999 -0700")
+
+	if existingLessonAnalytic.ID == uuid.Nil {
+		IDToInsert := uuid.New()
+		query := fmt.Sprintf(`INSERT INTO %s_lesson_analytics (id, %s_lesson_id, user_id, right_answers_count, questions_count, time_spent, created_at, updated_at)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?);`, lessonType, lessonType)
+		if err := models.DB.Exec(query, IDToInsert, model.LessonAnalytic.LessonID, user.ID, model.LessonAnalytic.RightAnswersCount, model.LessonAnalytic.QuestionsCount, model.LessonAnalytic.TimeSpent, now, now).Error; err != nil {
 			utils.RespondWithError(w, http.StatusInternalServerError, "failed to save the analytic for lesson")
 			return
 		}
+	} else {
+		if model.LessonAnalytic.RightAnswersCount > existingLessonAnalytic.RightAnswersCount {
+			existingLessonAnalytic.RightAnswersCount = model.LessonAnalytic.RightAnswersCount
+		}
 
-		utils.RespondWithJSON(w, http.StatusOK, nil)
-		return
-	}
+		query := fmt.Sprintf(`UPDATE %s_lesson_analytics
+				SET
+					right_answers_count = ?,
+					questions_count = ?,
+					time_spent = ?,
+				    updated_at = ?
+				WHERE
+    id = ?;`, lessonType)
 
-	if historyLessonAnalytic.RightAnswersCount > existingHistoryLessonAnalytic.RightAnswersCount {
-		existingHistoryLessonAnalytic.RightAnswersCount = historyLessonAnalytic.RightAnswersCount
-	}
-
-	existingHistoryLessonAnalytic.TimeSpent = historyLessonAnalytic.TimeSpent
-
-	err = models.DB.Save(&existingHistoryLessonAnalytic).Error
-	if err != nil {
-		utils.RespondWithError(w, http.StatusInternalServerError, "failed to save the analytic for lesson")
-		return
+		if err := models.DB.Exec(query, existingLessonAnalytic.RightAnswersCount, model.LessonAnalytic.QuestionsCount, model.LessonAnalytic.TimeSpent, now, existingLessonAnalytic.ID).Error; err != nil {
+			utils.RespondWithError(w, http.StatusInternalServerError, "failed to save the analytic for lesson")
+			return
+		}
 	}
 
 	var questionIDS []uuid.UUID
 	for _, qa := range model.QuestionAnalytics {
-		questionIDS = append(questionIDS, qa.HistoryQuestionID)
+		questionIDS = append(questionIDS, qa.QuestionID)
 	}
 
-	if err = models.DB.Exec("DELETE FROM history_question_analytics WHERE user_id = ? AND history_question_id IN ? ", user.ID, questionIDS).Error; err != nil {
+	if err = models.DB.Exec(fmt.Sprintf("DELETE FROM %s_question_analytics WHERE user_id = ? AND %s_question_id IN ? ", lessonType, lessonType), user.ID, questionIDS).Error; err != nil {
 		utils.RespondWithError(w, http.StatusInternalServerError, "failed to remove old analytics for questions")
 		return
 	}
 
-	var questionsAnalytics []models.HistoryQuestionAnalytic
+	if lessonType == "history" { //todo need to make it generic somehow
+		var questionsAnalytics []migrated_models.HistoryQuestionAnalytic
 
-	for _, questionAnalytic := range model.QuestionAnalytics {
-		questionsAnalytics = append(questionsAnalytics, models.HistoryQuestionAnalytic{
-			ID:                uuid.New(),
-			HistoryQuestionID: questionAnalytic.HistoryQuestionID,
-			UserID:            user.ID,
-			AnsweredRight:     questionAnalytic.AnsweredRight,
-			TimeSpent:         questionAnalytic.TimeSpent,
-		})
-	}
+		for _, questionAnalytic := range model.QuestionAnalytics {
+			questionsAnalytics = append(questionsAnalytics, migrated_models.HistoryQuestionAnalytic{
+				ID:                uuid.New(),
+				HistoryQuestionID: questionAnalytic.QuestionID,
+				UserID:            user.ID,
+				AnsweredRight:     questionAnalytic.AnsweredRight,
+				TimeSpent:         questionAnalytic.TimeSpent,
+			})
+		}
 
-	if err = models.DB.Save(&questionsAnalytics).Error; err != nil {
-		utils.RespondWithError(w, http.StatusInternalServerError, "failed to save analytics for questions")
-		return
+		if err = models.DB.Save(&questionsAnalytics).Error; err != nil {
+			utils.RespondWithError(w, http.StatusInternalServerError, "failed to save analytics for questions")
+			return
+		}
+	} else {
+		var questionsAnalytics []migrated_models.UkrainianQuestionAnalytic
+
+		for _, questionAnalytic := range model.QuestionAnalytics {
+			questionsAnalytics = append(questionsAnalytics, migrated_models.UkrainianQuestionAnalytic{
+				ID:                  uuid.New(),
+				UkrainianQuestionID: questionAnalytic.QuestionID,
+				UserID:              user.ID,
+				AnsweredRight:       questionAnalytic.AnsweredRight,
+				TimeSpent:           questionAnalytic.TimeSpent,
+			})
+		}
+
+		if err = models.DB.Save(&questionsAnalytics).Error; err != nil {
+			utils.RespondWithError(w, http.StatusInternalServerError, "failed to save analytics for questions")
+			return
+		}
 	}
 
 	utils.RespondWithJSON(w, http.StatusOK, nil)
@@ -112,28 +143,24 @@ func GetWeeklyQuestionAnalytics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	//currentDay := time.Now().Weekday()
+	lessonType := mux.Vars(r)["lessonType"]
 
-	// Calculate the number of days to subtract to get to the start of the week
-	//daysToSubtract := int(currentDay)
-
-	// Use Gorm to execute the SQL query
 	var analytics []struct {
 		DayOfWeek string `gorm:"day_of_week"`
 		Count     int    `gorm:"count"`
 	}
 
-	if err := models.DB.Raw(`
+	if err := models.DB.Raw(fmt.Sprintf(`
         SELECT 
     date_trunc('day', created_at) AS day_of_week, 
     COUNT(*) AS count
-FROM history_question_analytics
+FROM %s_question_analytics
 WHERE 
     user_id = ? AND
     created_at >= current_date - interval '7 days'
 GROUP BY day_of_week
 ORDER BY day_of_week;
-    `, user.ID).Scan(&analytics).Error; err != nil {
+    `, lessonType), user.ID).Scan(&analytics).Error; err != nil {
 		utils.RespondWithError(w, http.StatusInternalServerError, "failed to get analytics")
 		return
 	}

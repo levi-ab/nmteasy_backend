@@ -9,13 +9,13 @@ import (
 func New() http.Handler {
 	router := mux.NewRouter()
 
-	router.HandleFunc("/history-questions/{lessonID}", middleware.Protected(GetHistoryQuestions)).Methods("GET")
-	router.HandleFunc("/history-question-explanation/{questionID}", middleware.Protected(GetHistoryQuestionExplanation)).Methods("GET")
+	router.HandleFunc("/questions/{lessonType}/{lessonID}", middleware.Protected(GetQuestionsByLesson)).Methods("GET")
+	router.HandleFunc("/question-explanation/{lessonType}/{questionID}", middleware.Protected(GetQuestionExplanation)).Methods("GET")
+	router.HandleFunc("/lessons/{lessonType}", middleware.Protected(GetLessons)).Methods("GET")
 
 	//analytics
-	router.HandleFunc("/history-lessons/analytic", middleware.Protected(AddHistoryLessonAnalytics)).Methods("POST")
-	router.HandleFunc("/history-lessons", middleware.Protected(GetHistoryLessons)).Methods("GET")
-	router.HandleFunc("/weekly-history-analytics", middleware.Protected(GetWeeklyQuestionAnalytics)).Methods("GET")
+	router.HandleFunc("/lessons-analytic/{lessonType}", middleware.Protected(AddLessonAnalytics)).Methods("POST")
+	router.HandleFunc("/weekly-analytics/{lessonType}", middleware.Protected(GetWeeklyQuestionAnalytics)).Methods("GET")
 
 	router.HandleFunc("/lesson-complaint", middleware.Protected(AddComplaint)).Methods("POST")
 

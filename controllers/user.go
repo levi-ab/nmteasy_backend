@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"nmteasy_backend/models"
+	"nmteasy_backend/models/migrated_models"
 	"nmteasy_backend/utils"
 )
 
 func EditUser(w http.ResponseWriter, r *http.Request) {
-	var userModelPayload models.User
+	var userModelPayload migrated_models.User
 	currentUser := utils.GetCurrentUser(r)
 	if currentUser == nil {
 		utils.RespondWithError(w, http.StatusForbidden, "no token found")
@@ -37,7 +38,7 @@ func EditUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if userModelPayload.Email != currentUser.Email {
-		var dbuser models.User
+		var dbuser migrated_models.User
 		models.DB.Where("email = ?", userModelPayload.Email).First(&dbuser)
 
 		//checks if email is already registered or not
@@ -50,7 +51,7 @@ func EditUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if userModelPayload.Username != currentUser.Username {
-		var dbuser models.User
+		var dbuser migrated_models.User
 		models.DB.Where("username = ?", userModelPayload.Username).First(&dbuser)
 
 		//checks if username is already registered or not

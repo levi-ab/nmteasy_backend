@@ -1,40 +1,73 @@
 package controllers
 
 import (
+	"errors"
+	"fmt"
 	"github.com/gorilla/mux"
+	"gorm.io/gorm"
 	"net/http"
 	"nmteasy_backend/models"
 	"nmteasy_backend/utils"
 	"sort"
 )
 
-func GetHistoryQuestions(w http.ResponseWriter, r *http.Request) {
-	var historyQuestions []models.HistoryQuestion
-	paramValue := mux.Vars(r)["lessonID"]
-
-	if err := models.DB.Where("history_lesson_id = ? AND topic != 'error'", paramValue).Find(&historyQuestions).Error; err != nil {
-		utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get question")
-		return
-	}
-
-	utils.RespondWithJSON(w, http.StatusOK, historyQuestions)
-}
-
-func GetHistoryLessons(w http.ResponseWriter, r *http.Request) {
+func GetQuestionsByLesson(w http.ResponseWriter, r *http.Request) {
 	user := utils.GetCurrentUser(r)
 	if user == nil {
 		utils.RespondWithError(w, http.StatusForbidden, "wrong token")
 		return
 	}
 
-	var historyLessons []models.HistoryLessonWithProperTitle
+	lessonType := mux.Vars(r)["lessonType"]
+	lessonID := mux.Vars(r)["lessonID"]
+	var questions []models.Question
 
-	query := `
-    SELECT h.id, h.title, h.created_at, a.id as analytic_id, a.user_id, COALESCE(a.right_answers_count, 0), COALESCE(a.questions_count, 0),  COALESCE(a.created_at, '0001-01-01'::timestamp) as analytic_created_at,  COALESCE(a.updated_at, '0001-01-01'::timestamp) as analytic_updated_at, COALESCE(a.time_spent,0) as time_spent
-    FROM history_lessons h
-    LEFT JOIN history_lesson_analytics a ON h.id = a.history_lesson_id AND a.user_id = ?
+	rows, err := models.DB.
+		Raw(fmt.Sprintf(`SELECT id, question_text, question_image, answers, type, right_answer, topic, created_at, updated_at, %s_lesson_id as lesson_id
+								FROM %s_questions WHERE %s_lesson_id = ? AND topic != 'error'`, lessonType, lessonType, lessonType), lessonID).Rows()
+
+	if err != nil {
+		utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get questions")
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var question models.Question
+		if err := models.DB.ScanRows(rows, &question); err != nil {
+			utils.RespondWithError(w, http.StatusInternalServerError, "Failed to scan rows")
+			return
+		}
+
+		questions = append(questions, question)
+	}
+
+	if err := rows.Err(); err != nil {
+		utils.RespondWithError(w, http.StatusInternalServerError, "Error during rows iteration")
+		return
+	}
+
+	utils.RespondWithJSON(w, http.StatusOK, questions)
+
+}
+
+func GetLessons(w http.ResponseWriter, r *http.Request) {
+	user := utils.GetCurrentUser(r)
+	if user == nil {
+		utils.RespondWithError(w, http.StatusForbidden, "wrong token")
+		return
+	}
+
+	lessonType := mux.Vars(r)["lessonType"]
+
+	var lessons []models.LessonWithProperTitle
+
+	query := fmt.Sprintf(`
+    SELECT h.id, h.title, h.created_at, a.id as analytic_id, a.user_id, COALESCE(a.right_answers_count, 0), COALESCE(a.questions_count, 0), COALESCE(a.created_at, '0001-01-01'::timestamp) as analytic_created_at, COALESCE(a.updated_at, '0001-01-01'::timestamp) as analytic_updated_at, COALESCE(a.time_spent,0) as time_spent
+    FROM %s_lessons h
+    LEFT JOIN %s_lesson_analytics a ON h.id = a.%s_lesson_id AND a.user_id = ?
     ORDER BY h.created_at, h.title
-`
+`, lessonType, lessonType, lessonType)
 
 	rows, err := models.DB.Raw(query, user.ID).Rows()
 	if err != nil {
@@ -44,13 +77,13 @@ func GetHistoryLessons(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var historyLesson models.HistoryLessonWithProperTitle
-		var analytic models.HistoryLessonAnalytic
+		var lesson models.LessonWithProperTitle
+		var analytic models.LessonAnalytic
 
 		if err := rows.Scan(
-			&historyLesson.ID,
-			&historyLesson.Title,
-			&historyLesson.CreatedAt,
+			&lesson.ID,
+			&lesson.Title,
+			&lesson.CreatedAt,
 
 			&analytic.ID,
 			&analytic.UserID,
@@ -64,41 +97,41 @@ func GetHistoryLessons(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		historyLesson.HistoryLessonAnalytic = analytic
-		historyLessons = append(historyLessons, historyLesson)
+		lesson.LessonAnalytic = analytic
+		lessons = append(lessons, lesson)
 	}
 
 	if err := rows.Err(); err != nil {
 		utils.RespondWithError(w, http.StatusInternalServerError, "Error iterating over rows")
 		return
 	}
-	groupedLessonsMap := make(map[string][]models.HistoryLessonWithProperTitle)
+	groupedLessonsMap := make(map[string][]models.LessonWithProperTitle)
 
-	for _, historyLesson := range historyLessons {
-		properTitle, generalTitle := utils.FormatLessonTopic(historyLesson.Title)
+	for _, lesson := range lessons {
+		properTitle, generalTitle := utils.FormatLessonTopic(lesson.Title)
 
 		if lessons, ok := groupedLessonsMap[generalTitle]; ok {
-			groupedLessonsMap[generalTitle] = append(lessons, models.HistoryLessonWithProperTitle{
-				Title:                 historyLesson.Title,
-				ID:                    historyLesson.ID,
-				ProperTitle:           properTitle,
-				CreatedAt:             historyLesson.CreatedAt,
-				HistoryLessonAnalytic: historyLesson.HistoryLessonAnalytic,
+			groupedLessonsMap[generalTitle] = append(lessons, models.LessonWithProperTitle{
+				Title:          lesson.Title,
+				ID:             lesson.ID,
+				ProperTitle:    properTitle,
+				CreatedAt:      lesson.CreatedAt,
+				LessonAnalytic: lesson.LessonAnalytic,
 			})
 		} else {
-			groupedLessonsMap[generalTitle] = []models.HistoryLessonWithProperTitle{{
-				Title:                 historyLesson.Title,
-				ID:                    historyLesson.ID,
-				ProperTitle:           properTitle,
-				CreatedAt:             historyLesson.CreatedAt,
-				HistoryLessonAnalytic: historyLesson.HistoryLessonAnalytic,
+			groupedLessonsMap[generalTitle] = []models.LessonWithProperTitle{{
+				Title:          lesson.Title,
+				ID:             lesson.ID,
+				ProperTitle:    properTitle,
+				CreatedAt:      lesson.CreatedAt,
+				LessonAnalytic: lesson.LessonAnalytic,
 			}}
 		}
 	}
 
 	type GroupedLesson struct {
 		Title string
-		Data  []models.HistoryLessonWithProperTitle
+		Data  []models.LessonWithProperTitle
 	}
 	//need this cause maps mess up the order of the lessons
 
@@ -126,12 +159,26 @@ func GetHistoryLessons(w http.ResponseWriter, r *http.Request) {
 	utils.RespondWithJSON(w, http.StatusOK, result)
 }
 
-func GetHistoryQuestionExplanation(w http.ResponseWriter, r *http.Request) {
-	var explanation models.HistoryQuestionExplanation
-	paramValue := mux.Vars(r)["questionID"]
+func GetQuestionExplanation(w http.ResponseWriter, r *http.Request) {
+	user := utils.GetCurrentUser(r)
+	if user == nil {
+		utils.RespondWithError(w, http.StatusForbidden, "wrong token")
+		return
+	}
 
-	if err := models.DB.Where("history_question_id = ?", paramValue).Find(&explanation).Error; err != nil {
-		utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get question")
+	var explanation models.Explanation
+	lessonType := mux.Vars(r)["lessonType"]
+	questionID := mux.Vars(r)["questionID"]
+
+	query := fmt.Sprintf(`SELECT id, explanation, created_at, updated_at, %s_question_id as question_id
+								FROM %s_question_explanations WHERE %s_question_id = ?`, lessonType, lessonType, lessonType)
+
+	if err := models.DB.Raw(query, questionID).Scan(&explanation).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			utils.RespondWithError(w, http.StatusNotFound, "Explanation not found")
+		} else {
+			utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get explanation")
+		}
 		return
 	}
 

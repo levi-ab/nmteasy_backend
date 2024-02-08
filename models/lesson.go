@@ -5,56 +5,47 @@ import (
 	"time"
 )
 
-type HistoryQuestion struct {
-	ID              uuid.UUID `json:"id" gorm:"primary_key"`
-	QuestionText    string    `json:"question_text"`
-	QuestionImage   string    `json:"question_image"`
-	Answers         string    `json:"answers"`
-	Type            string    `json:"type"`
-	RightAnswer     string    `json:"right_answer"`
-	Topic           string    `json:"topic"`
-	CreatedAt       time.Time `json:"created_at"`
-	UpdatedAt       time.Time `json:"updated_at"`
-	HistoryLessonID uuid.UUID `json:"history_lesson_id"`
+type Lesson struct {
+	ID        uuid.UUID  `json:"id" gorm:"primary_key"`
+	Title     string     `json:"title"`
+	Questions []Question `json:"questions"`
+	TimeSpent int        `json:"time_spent"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
-type HistoryLesson struct {
-	ID        uuid.UUID         `json:"id" gorm:"primary_key"`
-	Title     string            `json:"title"`
-	Questions []HistoryQuestion `json:"questions"`
-	TimeSpent int               `json:"time_spent"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+type Question struct {
+	ID            uuid.UUID `json:"id" gorm:"primary_key"`
+	QuestionText  string    `json:"question_text"`
+	QuestionImage string    `json:"question_image"`
+	Answers       string    `json:"answers"`
+	Type          string    `json:"type"`
+	RightAnswer   string    `json:"right_answer"`
+	Topic         string    `json:"topic"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+	LessonID      uuid.UUID `json:"lesson_id"`
+}
+type Explanation struct {
+	ID          uuid.UUID `json:"id" gorm:"primary_key"`
+	Explanation string    `json:"explanation"`
+	QuestionID  uuid.UUID `json:"question_id"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+
+	Question Question `json:"question"`
 }
 
-type HistoryLessonWithAnalytic struct {
-	ID                    uuid.UUID             `json:"id" gorm:"primary_key"`
-	Title                 string                `json:"title"`
-	CreatedAt             time.Time             `json:"created_at"`
-	UpdatedAt             time.Time             `json:"updated_at"`
-	HistoryLessonAnalytic HistoryLessonAnalytic `json:"history_lesson_analytic"`
+type LessonWithProperTitle struct {
+	ID             uuid.UUID      `json:"id" gorm:"primary_key"`
+	Title          string         `json:"title"`
+	ProperTitle    string         `json:"proper_title"`
+	LessonAnalytic LessonAnalytic `json:"lesson_analytic"`
+	Questions      []Question     `json:"questions"`
+	CreatedAt      time.Time      `json:"created_at"`
 }
 
-type HistoryQuestionExplanation struct {
-	ID                uuid.UUID `json:"id" gorm:"primary_key"`
-	Explanation       string    `json:"explanation"`
-	HistoryQuestionID uuid.UUID `json:"history_question_id"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
-
-	HistoryQuestion HistoryQuestion `json:"history_question"`
-}
-
-type HistoryLessonWithProperTitle struct {
-	ID                    uuid.UUID             `json:"id" gorm:"primary_key"`
-	Title                 string                `json:"title"`
-	ProperTitle           string                `json:"proper_title"`
-	HistoryLessonAnalytic HistoryLessonAnalytic `json:"history_lesson_analytic"`
-	Questions             []HistoryQuestion     `json:"questions"`
-	CreatedAt             time.Time             `json:"created_at"`
-}
-
-var HistoryTopics = map[string]string{
+var Topics = map[string]string{
 	"pochatok_ukrayinskoyi_revolyuciyi":                        "Початок Української Революції",
 	"ukrayina_v_roki_pershoyi_svitovoyi_vijni":                 "Україна в роки Першої Світової Війни",
 	"dyrektorija_unr":                                          "Українська революція. Директорія УНР",
@@ -71,4 +62,6 @@ var HistoryTopics = map[string]string{
 	"vidnovlennya_nezalezhnosti_ukrayini":                      "Відновлення незалежності України",
 	"stanovlennya_ukrayini_yak_nezalezhnoyi_derzhavi":          "Становлення України як незалежної держави",
 	"tvorennya_novoyi_ukrayini":                                "Творення нової України",
+	"sklad_nagolos":                                            "Наголоси",
+	"cherguvannya_zvukiv":                                      "Співвідношення звуків і букв",
 }
