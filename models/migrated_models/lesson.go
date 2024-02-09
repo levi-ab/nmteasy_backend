@@ -68,3 +68,35 @@ type UkrainianQuestionExplanation struct {
 
 	UkrainianQuestion UkrainianQuestion `json:"ukrainian_question"`
 }
+
+type BiologyQuestion struct {
+	ID              uuid.UUID `json:"id" gorm:"primary_key"`
+	QuestionText    string    `json:"question_text"`
+	QuestionImage   string    `json:"question_image"`
+	Answers         string    `json:"answers"`
+	Type            string    `json:"type"`
+	RightAnswer     string    `json:"right_answer"`
+	Topic           string    `json:"topic"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+	BiologyLessonID uuid.UUID `json:"biology_lesson_id"`
+}
+
+type BiologyLesson struct {
+	ID        uuid.UUID         `json:"id" gorm:"primary_key"`
+	Title     string            `json:"title"`
+	Questions []BiologyQuestion `json:"questions"`
+	TimeSpent int               `json:"time_spent"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+type BiologyQuestionExplanation struct {
+	ID                uuid.UUID `json:"id" gorm:"primary_key"`
+	Explanation       string    `json:"explanation"`
+	BiologyQuestionID uuid.UUID `json:"biology_question_id"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+
+	BiologyQuestion BiologyQuestion `json:"biology_question"`
+}

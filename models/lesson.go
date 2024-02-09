@@ -46,6 +46,7 @@ type LessonWithProperTitle struct {
 }
 
 var Topics = map[string]string{
+	//history
 	"pochatok_ukrayinskoyi_revolyuciyi":                        "Початок Української Революції",
 	"ukrayina_v_roki_pershoyi_svitovoyi_vijni":                 "Україна в роки Першої Світової Війни",
 	"dyrektorija_unr":                                          "Українська революція. Директорія УНР",
@@ -62,6 +63,17 @@ var Topics = map[string]string{
 	"vidnovlennya_nezalezhnosti_ukrayini":                      "Відновлення незалежності України",
 	"stanovlennya_ukrayini_yak_nezalezhnoyi_derzhavi":          "Становлення України як незалежної держави",
 	"tvorennya_novoyi_ukrayini":                                "Творення нової України",
-	"sklad_nagolos":                                            "Наголоси",
-	"cherguvannya_zvukiv":                                      "Співвідношення звуків і букв",
+	//ukrainian
+	"sklad_nagolos":                       "Наголоси",
+	"cherguvannya_zvukiv":                 "Співвідношення звуків і букв",
+	"pravopis_eio":                        "Правопис літер, що позначають ненаголошені голосні е, и, о",
+	"prefiksy":                            "Правопис префіксів ",
+	"sproshennya_prigolosnih":             "Спрощення в групах приголосних",
+	"zmini_prigolosnih_pri_tvorenni_sliv": "Зміни приголосних при творенні слів",
+	"apostrof":                            "Апостроф",
+	//biology
+	"biologhija_jak_nauka_pro_zhyve":                 "Біологія як наука про живе",
+	"elementnyj_sklad_klityny_neorghanichni_spoluky": "Елементний склад клітини. Неорганічні сполуки",
+	"orghanichni_spoluky_vughlevody_lipidy":          "Органічні сполуки. Вуглеводи, ліпіди",
+	"orghanichni_spoluky_bilky":                      "Органічні сполуки. Білки",
 }

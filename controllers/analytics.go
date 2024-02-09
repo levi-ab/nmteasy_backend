@@ -114,7 +114,12 @@ func AddLessonAnalytics(w http.ResponseWriter, r *http.Request) {
 			utils.RespondWithError(w, http.StatusInternalServerError, "failed to save analytics for questions")
 			return
 		}
-	} else {
+
+		utils.RespondWithJSON(w, http.StatusOK, nil)
+		return
+	}
+
+	if lessonType == "ukrainian" {
 		var questionsAnalytics []migrated_models.UkrainianQuestionAnalytic
 
 		for _, questionAnalytic := range model.QuestionAnalytics {
@@ -131,9 +136,30 @@ func AddLessonAnalytics(w http.ResponseWriter, r *http.Request) {
 			utils.RespondWithError(w, http.StatusInternalServerError, "failed to save analytics for questions")
 			return
 		}
+
+		utils.RespondWithJSON(w, http.StatusOK, nil)
+		return
+	}
+
+	var questionsAnalytics []migrated_models.BiologyQuestionAnalytic
+
+	for _, questionAnalytic := range model.QuestionAnalytics {
+		questionsAnalytics = append(questionsAnalytics, migrated_models.BiologyQuestionAnalytic{
+			ID:                uuid.New(),
+			BiologyQuestionID: questionAnalytic.QuestionID,
+			UserID:            user.ID,
+			AnsweredRight:     questionAnalytic.AnsweredRight,
+			TimeSpent:         questionAnalytic.TimeSpent,
+		})
+	}
+
+	if err = models.DB.Save(&questionsAnalytics).Error; err != nil {
+		utils.RespondWithError(w, http.StatusInternalServerError, "failed to save analytics for questions")
+		return
 	}
 
 	utils.RespondWithJSON(w, http.StatusOK, nil)
+	return
 }
 
 func GetWeeklyQuestionAnalytics(w http.ResponseWriter, r *http.Request) {
@@ -153,7 +179,7 @@ func GetWeeklyQuestionAnalytics(w http.ResponseWriter, r *http.Request) {
 	if err := models.DB.Raw(fmt.Sprintf(`
         SELECT 
     date_trunc('day', created_at) AS day_of_week, 
-    COUNT(*) AS count
+     SUM(COUNT(*)) OVER (ORDER BY date_trunc('day', created_at)) AS count
 FROM %s_question_analytics
 WHERE 
     user_id = ? AND

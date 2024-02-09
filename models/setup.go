@@ -40,5 +40,11 @@ func ConnectDatabase() {
 	database.AutoMigrate(&migrated_models.UkrainianLessonAnalytic{})
 	database.AutoMigrate(&migrated_models.UkrainianQuestionAnalytic{})
 
+	database.AutoMigrate(&migrated_models.BiologyQuestion{})
+	database.AutoMigrate(&migrated_models.BiologyLesson{})
+	database.AutoMigrate(&migrated_models.BiologyQuestionExplanation{})
+	database.AutoMigrate(&migrated_models.BiologyLessonAnalytic{})
+	database.AutoMigrate(&migrated_models.BiologyQuestionAnalytic{})
+
 	DB = database
 }
