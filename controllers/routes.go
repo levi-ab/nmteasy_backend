@@ -9,6 +9,7 @@ import (
 func New() http.Handler {
 	router := mux.NewRouter()
 
+	//lessons
 	router.HandleFunc("/questions/{lessonType}/{lessonID}", middleware.Protected(GetQuestionsByLesson)).Methods("GET")
 	router.HandleFunc("/question-explanation/{lessonType}/{questionID}", middleware.Protected(GetQuestionExplanation)).Methods("GET")
 	router.HandleFunc("/lessons/{lessonType}", middleware.Protected(GetLessons)).Methods("GET")
@@ -23,6 +24,10 @@ func New() http.Handler {
 	router.HandleFunc("/sign-up", SignUp).Methods("POST")
 	router.HandleFunc("/sign-in", SignIn).Methods("POST")
 	router.HandleFunc("/user/edit", middleware.Protected(EditUser)).Methods("POST")
+
+	//leagues
+	router.HandleFunc("/leagues", middleware.Protected(GetLeagues)).Methods("GET")
+	router.HandleFunc("/current-league", middleware.Protected(GetCurrentLeague)).Methods("GET")
 
 	return router
 }

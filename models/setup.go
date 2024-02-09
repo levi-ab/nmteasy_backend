@@ -27,6 +27,7 @@ func ConnectDatabase() {
 
 	database.AutoMigrate(&migrated_models.User{})
 	database.AutoMigrate(&Complaint{})
+	database.AutoMigrate(&migrated_models.League{})
 
 	database.AutoMigrate(&migrated_models.HistoryQuestion{})
 	database.AutoMigrate(&migrated_models.HistoryLesson{})

@@ -76,4 +76,5 @@ var Topics = map[string]string{
 	"elementnyj_sklad_klityny_neorghanichni_spoluky": "Елементний склад клітини. Неорганічні сполуки",
 	"orghanichni_spoluky_vughlevody_lipidy":          "Органічні сполуки. Вуглеводи, ліпіди",
 	"orghanichni_spoluky_bilky":                      "Органічні сполуки. Білки",
+	"orghanichni_spoluky_nukleyinovi_kysloty_atf":    "Органічні сполуки. Нуклеїнові кислоти. АТФ",
 }

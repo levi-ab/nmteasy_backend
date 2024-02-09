@@ -83,7 +83,7 @@ func SignIn(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var authUser migrated_models.User
-	models.DB.Where("email = ?", authDetails.Email).First(&authUser)
+	models.DB.Where("email = ?", authDetails.Email).Preload("League").First(&authUser)
 	if authUser.Email == "" {
 		utils.RespondWithError(w, http.StatusBadRequest, "no user found")
 		return
