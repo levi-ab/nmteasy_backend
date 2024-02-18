@@ -13,7 +13,7 @@ type User struct {
 	Username     string    `json:"username"`
 	Email        string    `gorm:"unique" json:"email"`
 	Points       int       `gorm:"not null" json:"points"`
-	WeeklyPoints int       `gorm:"not null" json:"weekly-points"`
+	WeeklyPoints int       `gorm:"not null" json:"weekly_points"`
 	Password     string    `json:"password"`
 
 	LeagueID *uuid.UUID `json:"league_id"`

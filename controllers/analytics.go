@@ -60,6 +60,7 @@ func AddLessonAnalytics(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().Format("2006-01-02 15:04:05.999 -0700")
 
 	user.Points = user.Points + model.LessonAnalytic.RightAnswersCount
+	user.WeeklyPoints = user.WeeklyPoints + model.LessonAnalytic.RightAnswersCount
 
 	if err = models.DB.Save(&user).Error; err != nil {
 		utils.RespondWithError(w, http.StatusInternalServerError, "failed updated the user points")
