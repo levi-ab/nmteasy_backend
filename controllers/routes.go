@@ -16,6 +16,8 @@ func New() http.Handler {
 
 	//analytics
 	router.HandleFunc("/lessons-analytic/{lessonType}", middleware.Protected(AddLessonAnalytics)).Methods("POST")
+	router.HandleFunc("/questions-analytic/{lessonType}", middleware.Protected(AddQuestionsAnalytics)).Methods("POST")
+
 	router.HandleFunc("/weekly-analytics/{lessonType}", middleware.Protected(GetWeeklyQuestionAnalytics)).Methods("GET")
 
 	router.HandleFunc("/lesson-complaint", middleware.Protected(AddComplaint)).Methods("POST")
@@ -28,6 +30,11 @@ func New() http.Handler {
 	//leagues
 	router.HandleFunc("/leagues", middleware.Protected(GetLeagues)).Methods("GET")
 	router.HandleFunc("/current-league", middleware.Protected(GetCurrentLeague)).Methods("GET")
+
+	//questions
+	router.HandleFunc("/random-questions/{lessonType}", middleware.Protected(GetRandomQuestions)).Methods("GET")
+	router.HandleFunc("/match-questions/{lessonType}", middleware.Protected(GetMatchQuestions)).Methods("GET")
+	router.HandleFunc("/wrong-answer-questions/{lessonType}", middleware.Protected(GetWrongAnsweredQuestions)).Methods("GET")
 
 	return router
 }

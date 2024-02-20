@@ -33,11 +33,6 @@ func SignUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !utils.IsValidPassword(user.Password) {
-		utils.RespondWithError(w, http.StatusBadRequest, "password must contain 1 uppercase, 1 lowercase, 1 number")
-		return
-	}
-
 	var dbuser migrated_models.User
 	models.DB.Where("email = ?", user.Email).First(&dbuser)
 

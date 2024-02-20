@@ -24,7 +24,7 @@ func main() {
 	models.ConnectDatabase()
 	common.SECRET_KEY = os.Getenv("SECRET_KEY")
 
-	utils.GenerateRandomUsers(models.DB)
+	//utils.GenerateRandomUsers(models.DB)
 
 	go func() {
 		ticker := time.NewTicker(7 * 24 * time.Hour)

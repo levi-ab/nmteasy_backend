@@ -14,6 +14,12 @@ import (
 	"time"
 )
 
+type QuestionAnalytics []struct {
+	QuestionID    uuid.UUID `json:"question_id"`
+	TimeSpent     int       `json:"time_spent"`
+	AnsweredRight bool      `json:"answered_right"`
+}
+
 func AddLessonAnalytics(w http.ResponseWriter, r *http.Request) {
 	user := utils.GetCurrentUser(r)
 	if user == nil {
@@ -30,11 +36,7 @@ func AddLessonAnalytics(w http.ResponseWriter, r *http.Request) {
 			RightAnswersCount int       `json:"right_answers_count"`
 			QuestionsCount    int       `json:"questions_count"`
 		} `json:"lesson_analytic"`
-		QuestionAnalytics []struct {
-			QuestionID    uuid.UUID `json:"question_id"`
-			TimeSpent     int       `json:"time_spent"`
-			AnsweredRight bool      `json:"answered_right"`
-		} `json:"question_analytics"`
+		QuestionAnalytics QuestionAnalytics `json:"question_analytics"`
 	}
 
 	var model FullLessonAnalytic
@@ -95,79 +97,53 @@ func AddLessonAnalytics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var questionIDS []uuid.UUID
-	for _, qa := range model.QuestionAnalytics {
-		questionIDS = append(questionIDS, qa.QuestionID)
-	}
-
-	if err = models.DB.Exec(fmt.Sprintf("DELETE FROM %s_question_analytics WHERE user_id = ? AND %s_question_id IN ? ", lessonType, lessonType), user.ID, questionIDS).Error; err != nil {
-		utils.RespondWithError(w, http.StatusInternalServerError, "failed to remove old analytics for questions")
-		return
-	}
-
-	if lessonType == "history" { //todo need to make it generic somehow
-		var questionsAnalytics []migrated_models.HistoryQuestionAnalytic
-
-		for _, questionAnalytic := range model.QuestionAnalytics {
-			questionsAnalytics = append(questionsAnalytics, migrated_models.HistoryQuestionAnalytic{
-				ID:                uuid.New(),
-				HistoryQuestionID: questionAnalytic.QuestionID,
-				UserID:            user.ID,
-				AnsweredRight:     questionAnalytic.AnsweredRight,
-				TimeSpent:         questionAnalytic.TimeSpent,
-			})
-		}
-
-		if err = models.DB.Save(&questionsAnalytics).Error; err != nil {
-			utils.RespondWithError(w, http.StatusInternalServerError, "failed to save analytics for questions")
-			return
-		}
-
-		utils.RespondWithJSON(w, http.StatusOK, nil)
-		return
-	}
-
-	if lessonType == "ukrainian" {
-		var questionsAnalytics []migrated_models.UkrainianQuestionAnalytic
-
-		for _, questionAnalytic := range model.QuestionAnalytics {
-			questionsAnalytics = append(questionsAnalytics, migrated_models.UkrainianQuestionAnalytic{
-				ID:                  uuid.New(),
-				UkrainianQuestionID: questionAnalytic.QuestionID,
-				UserID:              user.ID,
-				AnsweredRight:       questionAnalytic.AnsweredRight,
-				TimeSpent:           questionAnalytic.TimeSpent,
-			})
-		}
-
-		if err = models.DB.Save(&questionsAnalytics).Error; err != nil {
-			utils.RespondWithError(w, http.StatusInternalServerError, "failed to save analytics for questions")
-			return
-		}
-
-		utils.RespondWithJSON(w, http.StatusOK, nil)
-		return
-	}
-
-	var questionsAnalytics []migrated_models.BiologyQuestionAnalytic
-
-	for _, questionAnalytic := range model.QuestionAnalytics {
-		questionsAnalytics = append(questionsAnalytics, migrated_models.BiologyQuestionAnalytic{
-			ID:                uuid.New(),
-			BiologyQuestionID: questionAnalytic.QuestionID,
-			UserID:            user.ID,
-			AnsweredRight:     questionAnalytic.AnsweredRight,
-			TimeSpent:         questionAnalytic.TimeSpent,
-		})
-	}
-
-	if err = models.DB.Save(&questionsAnalytics).Error; err != nil {
+	err = SaveQuestionAnalytics(lessonType, user, model.QuestionAnalytics)
+	if err != nil {
 		utils.RespondWithError(w, http.StatusInternalServerError, "failed to save analytics for questions")
 		return
 	}
 
 	utils.RespondWithJSON(w, http.StatusOK, nil)
 	return
+}
+
+func AddQuestionsAnalytics(w http.ResponseWriter, r *http.Request) {
+	user := utils.GetCurrentUser(r)
+	if user == nil {
+		utils.RespondWithError(w, http.StatusForbidden, "wrong token")
+		return
+	}
+
+	lessonType := mux.Vars(r)["lessonType"]
+
+	type FullLessonAnalytic struct {
+		QuestionAnalytics QuestionAnalytics `json:"question_analytics"`
+		RightAnswersCount int               `json:"right_answers_count"`
+	}
+
+	var model FullLessonAnalytic
+
+	err := json.NewDecoder(r.Body).Decode(&model)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusBadRequest, "failed to decode the body")
+		return
+	}
+
+	user.Points = user.Points + model.RightAnswersCount
+	user.WeeklyPoints = user.WeeklyPoints + model.RightAnswersCount
+
+	if err = models.DB.Save(&user).Error; err != nil {
+		utils.RespondWithError(w, http.StatusInternalServerError, "failed updated the user points")
+		return
+	}
+
+	err = SaveQuestionAnalytics(lessonType, user, model.QuestionAnalytics)
+	if err != nil {
+		utils.RespondWithError(w, http.StatusInternalServerError, "failed to save analytics for questions")
+		return
+	}
+
+	utils.RespondWithJSON(w, http.StatusOK, nil)
 }
 
 func GetWeeklyQuestionAnalytics(w http.ResponseWriter, r *http.Request) {
@@ -191,7 +167,7 @@ func GetWeeklyQuestionAnalytics(w http.ResponseWriter, r *http.Request) {
 FROM %s_question_analytics
 WHERE 
     user_id = ? AND
-    created_at >= current_date - interval '7 days'
+    created_at >= current_date - interval '30 days'
 GROUP BY day_of_week
 ORDER BY day_of_week;
     `, lessonType), user.ID).Scan(&analytics).Error; err != nil {
@@ -206,4 +182,73 @@ ORDER BY day_of_week;
 	}
 
 	utils.RespondWithJSON(w, http.StatusOK, result)
+}
+
+func SaveQuestionAnalytics(lessonType string, user *migrated_models.User, questionAnalytics QuestionAnalytics) error {
+	var questionIDS []uuid.UUID
+	for _, qa := range questionAnalytics {
+		questionIDS = append(questionIDS, qa.QuestionID)
+	}
+
+	if err := models.DB.Exec(fmt.Sprintf("DELETE FROM %s_question_analytics WHERE user_id = ? AND %s_question_id IN ? ", lessonType, lessonType), user.ID, questionIDS).Error; err != nil {
+		return err
+	}
+
+	if lessonType == "history" { //todo need to make it generic somehow
+		var questionsAnalytics []migrated_models.HistoryQuestionAnalytic
+
+		for _, questionAnalytic := range questionAnalytics {
+			questionsAnalytics = append(questionsAnalytics, migrated_models.HistoryQuestionAnalytic{
+				ID:                uuid.New(),
+				HistoryQuestionID: questionAnalytic.QuestionID,
+				UserID:            user.ID,
+				AnsweredRight:     questionAnalytic.AnsweredRight,
+				TimeSpent:         questionAnalytic.TimeSpent,
+			})
+		}
+
+		if err := models.DB.Save(&questionsAnalytics).Error; err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	if lessonType == "ukrainian" {
+		var questionsAnalytics []migrated_models.UkrainianQuestionAnalytic
+
+		for _, questionAnalytic := range questionAnalytics {
+			questionsAnalytics = append(questionsAnalytics, migrated_models.UkrainianQuestionAnalytic{
+				ID:                  uuid.New(),
+				UkrainianQuestionID: questionAnalytic.QuestionID,
+				UserID:              user.ID,
+				AnsweredRight:       questionAnalytic.AnsweredRight,
+				TimeSpent:           questionAnalytic.TimeSpent,
+			})
+		}
+
+		if err := models.DB.Save(&questionsAnalytics).Error; err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	var questionsAnalytics []migrated_models.BiologyQuestionAnalytic
+
+	for _, questionAnalytic := range questionAnalytics {
+		questionsAnalytics = append(questionsAnalytics, migrated_models.BiologyQuestionAnalytic{
+			ID:                uuid.New(),
+			BiologyQuestionID: questionAnalytic.QuestionID,
+			UserID:            user.ID,
+			AnsweredRight:     questionAnalytic.AnsweredRight,
+			TimeSpent:         questionAnalytic.TimeSpent,
+		})
+	}
+
+	if err := models.DB.Save(&questionsAnalytics).Error; err != nil {
+		return err
+	}
+
+	return nil
 }
