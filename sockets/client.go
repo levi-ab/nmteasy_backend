@@ -42,11 +42,9 @@ type Client struct {
 
 	// The websocket connection.
 	clientID       uuid.UUID //client id
-	targetUserID   uuid.UUID //user target id
 	IsInQueue      bool      //weather the client is in queue
 	conn           *websocket.Conn
 	CorrectAnswers int
-
 	// Buffered channel of outbound messages.
 	send chan []byte
 }
@@ -82,7 +80,7 @@ func (c *Client) readPump() {
 
 		if err = json.Unmarshal(messageData, &targetMessage); err != nil {
 			messageToSend := []byte(`{"MessageType": "error", "Message": ` + string("failed to parse the message") + `}`)
-			c.conn.WriteMessage(websocket.TextMessage, messageToSend)
+			c.send <- messageToSend
 			continue
 		}
 
