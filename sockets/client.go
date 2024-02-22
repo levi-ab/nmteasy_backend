@@ -4,11 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	"log"
 	"net/http"
-	"nmteasy_backend/models"
-	"nmteasy_backend/models/migrated_models"
 	"nmteasy_backend/utils"
 	"time"
 
@@ -17,7 +14,7 @@ import (
 
 const (
 	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
+	writeWait = 60 * time.Second
 
 	// Time allowed to read the next pong message from the peer.
 	pongWait = 60 * time.Second
@@ -44,9 +41,11 @@ type Client struct {
 	hub *Hub
 
 	// The websocket connection.
-	clientID     uuid.UUID //client id
-	targetUserID uuid.UUID //user target id
-	conn         *websocket.Conn
+	clientID       uuid.UUID //client id
+	targetUserID   uuid.UUID //user target id
+	IsInQueue      bool      //weather the client is in queue
+	conn           *websocket.Conn
+	CorrectAnswers int
 
 	// Buffered channel of outbound messages.
 	send chan []byte
@@ -76,23 +75,28 @@ func (c *Client) readPump() {
 			break
 		}
 
-		// Extract target user ID from the message (assuming a simple protocol)
-		var targetUserID uuid.UUID
-		if err := json.Unmarshal(message, &targetUserID); err != nil {
-			log.Printf("error decoding targetUserID: %v", err)
+		// Modify the message to include sender and target information
+		messageData := bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
+
+		var targetMessage Message
+
+		if err = json.Unmarshal(messageData, &targetMessage); err != nil {
+			messageToSend := []byte(`{"MessageType": "error", "Message": ` + string("failed to parse the message") + `}`)
+			c.conn.WriteMessage(websocket.TextMessage, messageToSend)
 			continue
 		}
 
-		// Modify the message to include sender and target information
-		messageData := bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
-		targetMessage := &Message{
-			SenderID: c.clientID,
-			TargetID: targetUserID,
-			Message:  messageData,
-		}
-
 		// Send the message to the hub for processing
-		c.hub.broadcast <- targetMessage
+		c.hub.broadcast <- &targetMessage
+
+		if targetMessage.MessageType == "join_matchmaking" {
+			// Set the client state to indicate they are in the matchmaking queue
+			c.IsInQueue = true
+
+			// Add the client to the matchmaking queue
+			c.hub.matchmakingQueue = append(c.hub.matchmakingQueue, c)
+			continue
+		}
 	}
 }
 
@@ -152,16 +156,7 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 	user := utils.GetCurrentUser(r)
 
-	targetID := mux.Vars(r)["targetID"]
-
-	var targetUser migrated_models.User
-	if err = models.DB.Where("id = ?", targetID).Find(&targetUser).Error; err != nil || targetUser.Email == "" {
-		utils.RespondWithError(w, http.StatusBadRequest, "failed to find the target user")
-		conn.Close()
-		return
-	}
-
-	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256), targetUserID: targetUser.ID, clientID: user.ID}
+	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256), clientID: user.ID}
 	client.hub.register <- client
 
 	// Allow collection of memory referenced by the caller by doing all work in
