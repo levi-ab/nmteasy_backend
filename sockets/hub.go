@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 	"nmteasy_backend/models"
 	"nmteasy_backend/models/migrated_models"
 	"strings"
@@ -95,14 +94,14 @@ func (h *Hub) Run() {
 				if !ok {
 					// Room not found
 					fmt.Println("room not found")
-					return
+					continue
 				}
 
 				var parsedAnswerMessage AnswerMessage
 
 				if err := json.Unmarshal([]byte(message.Message), &parsedAnswerMessage); err != nil {
 					fmt.Println("failed to parse the answer")
-					return
+					continue
 				}
 
 				var sender *Client
@@ -117,7 +116,7 @@ func (h *Hub) Run() {
 
 				if sender == nil {
 					fmt.Println("failed to determine the sender")
-					return
+					continue
 				}
 
 				if room.GameState.Questions[room.GameState.CurrentIndex].RightAnswer == parsedAnswerMessage.Answer {
@@ -126,10 +125,11 @@ func (h *Hub) Run() {
 						messageToSend := []byte(`{"MessageType": "result", "Message": ` + string("Game finished карочє і сюди ми ще резалт втулим") + `}`)
 						sender.send <- messageToSend
 						anotherClient.send <- messageToSend
-						return
+						continue
 					}
 
 					room.GameState.CurrentIndex = room.GameState.CurrentIndex + 1
+					h.rooms[message.RoomID] = room
 					sender.send <- []byte("correct u piece of shit")
 					anotherClient.send <- []byte("another gut answered answered right u piece of shit")
 
@@ -215,7 +215,7 @@ func (h *Hub) removeFromRooms(client *Client) {
 
 					jsonMessage, _ := json.Marshal(messageToSend)
 
-					otherClientConn.conn.WriteMessage(websocket.TextMessage, jsonMessage)
+					otherClientConn.send <- jsonMessage
 					otherClientConn.conn.Close()
 					break // Assuming there's only one other client in the room
 				}

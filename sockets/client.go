@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"nmteasy_backend/utils"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -46,7 +47,8 @@ type Client struct {
 	conn           *websocket.Conn
 	CorrectAnswers int
 	// Buffered channel of outbound messages.
-	send chan []byte
+	send       chan []byte
+	writeMutex sync.Mutex
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -112,15 +114,17 @@ func (c *Client) writePump() {
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			c.writeMutex.Lock()
 			if !ok {
 				// The hub closed the channel.
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				c.writeMutex.Unlock()
 				return
 			}
 
 			w, err := c.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
+				c.writeMutex.Unlock()
 				return
 			}
 			w.Write(message)
@@ -133,13 +137,19 @@ func (c *Client) writePump() {
 			}
 
 			if err := w.Close(); err != nil {
+				c.writeMutex.Unlock()
 				return
 			}
+			c.writeMutex.Unlock()
+
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			c.writeMutex.Lock()
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				c.writeMutex.Unlock()
 				return
 			}
+			c.writeMutex.Unlock()
 		}
 	}
 }
