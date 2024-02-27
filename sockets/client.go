@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/golang-jwt/jwt"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"log"
 	"net/http"
+	"nmteasy_backend/common"
+	"nmteasy_backend/models/migrated_models"
 	"nmteasy_backend/utils"
 	"sync"
 	"time"
@@ -172,7 +176,24 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := utils.GetCurrentUser(r)
+	var user *migrated_models.User
+
+	token := mux.Vars(r)["token"] //todo huge security risk but i dont give a damn cuz stupid js wont change one thing in 14 years and neither will i
+	mySigningKey := []byte(common.SECRET_KEY)
+	parsedToken, err := utils.ParseToken(token, mySigningKey)
+	if err != nil || parsedToken == nil {
+		log.Println(err)
+		return
+	}
+
+	if claims, ok := parsedToken.Claims.(jwt.MapClaims); ok {
+		if email, ok := claims["email"].(string); ok && email != "" {
+			_user, err := utils.GetUserByEmail(email)
+			if err == nil {
+				user = _user
+			}
+		}
+	}
 
 	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256), clientID: user.ID}
 	client.hub.register <- client

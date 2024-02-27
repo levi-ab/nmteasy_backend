@@ -40,9 +40,9 @@ func New() http.Handler {
 
 	hub := sockets.NewHub()
 	go hub.Run()
-	router.HandleFunc("/ws", middleware.Protected(func(w http.ResponseWriter, r *http.Request) {
+	router.HandleFunc("/ws/{token}", func(w http.ResponseWriter, r *http.Request) {
 		sockets.ServeWs(hub, w, r)
-	}))
+	})
 
 	return router
 }

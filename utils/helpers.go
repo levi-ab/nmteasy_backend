@@ -75,14 +75,14 @@ func GetCurrentUser(r *http.Request) *migrated_models.User {
 	}
 
 	mySigningKey := []byte(common.SECRET_KEY)
-	parsedToken, err := parseToken(token, mySigningKey)
+	parsedToken, err := ParseToken(token, mySigningKey)
 	if err != nil || parsedToken == nil {
 		return nil
 	}
 
 	if claims, ok := parsedToken.Claims.(jwt.MapClaims); ok {
 		if email, ok := claims["email"].(string); ok && email != "" {
-			user, err := getUserByEmail(email)
+			user, err := GetUserByEmail(email)
 			if err == nil {
 				return user
 			}
@@ -92,7 +92,7 @@ func GetCurrentUser(r *http.Request) *migrated_models.User {
 	return nil
 }
 
-func parseToken(tokenString string, signingKey []byte) (*jwt.Token, error) {
+func ParseToken(tokenString string, signingKey []byte) (*jwt.Token, error) {
 	return jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if method, ok := token.Method.(*jwt.SigningMethodHMAC); !ok || method != jwt.SigningMethodHS256 {
 			return nil, fmt.Errorf("invalid token signing method")
@@ -101,7 +101,7 @@ func parseToken(tokenString string, signingKey []byte) (*jwt.Token, error) {
 	})
 }
 
-func getUserByEmail(email string) (*migrated_models.User, error) {
+func GetUserByEmail(email string) (*migrated_models.User, error) {
 	var user migrated_models.User
 	err := models.DB.Where("email = ?", email).Find(&user).Error
 	if err != nil {
