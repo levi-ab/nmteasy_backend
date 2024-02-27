@@ -11,11 +11,13 @@ import (
 )
 
 const INFO string = "info"
+const ERROR string = "error"
 const ANSWER string = "answer"
 const QUESTION string = "question"
 const NEXT_QUESTION string = "next_question"
 const GET_NEXT_QUESTION string = "get_next_question"
 const RESULT string = "result"
+const FINISHED string = "finished"
 
 type Room struct {
 	Clients   map[*Client]bool `json:"-"`
@@ -106,6 +108,7 @@ func (h *Hub) Run() {
 
 				var sender *Client
 				var anotherClient *Client
+				//i dont like how i do this, it is very confusing, spend like 5 min to understand wtf is going on todo
 				for client := range room.Clients {
 					if client.clientID == parsedAnswerMessage.UserID {
 						sender = client
@@ -122,21 +125,64 @@ func (h *Hub) Run() {
 				if room.GameState.Questions[room.GameState.CurrentIndex].RightAnswer == parsedAnswerMessage.Answer {
 					if room.GameState.CurrentIndex+1 == len(room.GameState.Questions) {
 						//finishing the game
-						messageToSend := []byte(`{"MessageType": "result", "Message": ` + string("Game finished карочє і сюди ми ще резалт втулим") + `}`)
+						msg := Message{
+							Message:     "Congratulation the game is finished",
+							MessageType: FINISHED,
+						}
+
+						messageToSend, err := json.Marshal(msg)
+						if err != nil {
+							fmt.Println("Error marshaling message:", err)
+							continue
+						}
+
 						sender.send <- messageToSend
 						anotherClient.send <- messageToSend
+
+						h.unregister <- sender
+						h.unregister <- anotherClient
 						continue
 					}
 
 					room.GameState.CurrentIndex = room.GameState.CurrentIndex + 1
 					h.rooms[message.RoomID] = room
-					sender.send <- []byte("correct u piece of shit")
-					anotherClient.send <- []byte("another gut answered answered right u piece of shit")
+
+					msg := Message{
+						Message:     "Correct! Great Job!",
+						MessageType: RESULT,
+					}
+
+					messageToSend, err := json.Marshal(msg)
+					if err != nil {
+						fmt.Println("Error marshaling message:", err)
+						continue
+					}
+
+					sender.send <- messageToSend
+					msg.Message = "Wrong(("
+
+					messageToSend, err = json.Marshal(msg)
+					if err != nil {
+						fmt.Println("Error marshaling message:", err)
+						continue
+					}
+
+					anotherClient.send <- messageToSend
 
 					sendQuestion(room.GameState.Questions[room.GameState.CurrentIndex], room.Clients)
 
 				} else {
-					sender.send <- []byte("wrong u piece of shit")
+					msg := Message{
+						Message:     "Wrong((",
+						MessageType: RESULT,
+					}
+
+					messageToSend, err := json.Marshal(msg)
+					if err != nil {
+						fmt.Println("Error marshaling message:", err)
+						continue
+					}
+					sender.send <- messageToSend
 				}
 			}
 

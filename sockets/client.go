@@ -3,6 +3,7 @@ package sockets
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"github.com/google/uuid"
 	"log"
 	"net/http"
@@ -18,7 +19,7 @@ const (
 	writeWait = 60 * time.Second
 
 	// Time allowed to read the next pong message from the peer.
-	pongWait = 60 * time.Second
+	pongWait = 520 * time.Second
 
 	// Send pings to peer with this period. Must be less than pongWait.
 	pingPeriod = (pongWait * 9) / 10
@@ -75,13 +76,22 @@ func (c *Client) readPump() {
 			break
 		}
 
-		// Modify the message to include sender and target information
 		messageData := bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
 
 		var targetMessage Message
 
 		if err = json.Unmarshal(messageData, &targetMessage); err != nil {
-			messageToSend := []byte(`{"MessageType": "error", "Message": ` + string("failed to parse the message") + `}`)
+			errorMessage := Message{
+				Message:     "failed to parse the message",
+				MessageType: ERROR,
+			}
+
+			messageToSend, err := json.Marshal(errorMessage)
+			if err != nil {
+				fmt.Println("Error marshaling message:", err)
+				continue
+			}
+
 			c.send <- messageToSend
 			continue
 		}
