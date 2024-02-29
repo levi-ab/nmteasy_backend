@@ -18,6 +18,7 @@ const NEXT_QUESTION string = "next_question"
 const GET_NEXT_QUESTION string = "get_next_question"
 const RESULT string = "result"
 const FINISHED string = "finished"
+const MATCH_FOUND string = "match_found"
 
 type Room struct {
 	Clients   map[*Client]bool `json:"-"`
@@ -198,8 +199,18 @@ func (h *Hub) Run() {
 				room := client1.clientID.String() + client2.clientID.String()
 
 				// Notify clients that they have found a match
-				client1.send <- []byte(room)
-				client2.send <- []byte(room)
+				msg := Message{
+					Message:     room,
+					MessageType: MATCH_FOUND,
+				}
+
+				messageToSend, err := json.Marshal(msg)
+				if err != nil {
+					fmt.Println("Error marshaling message:", err)
+					continue
+				}
+				client1.send <- messageToSend
+				client2.send <- messageToSend
 
 				client2.IsInQueue = false
 				client1.IsInQueue = false
