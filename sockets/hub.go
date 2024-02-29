@@ -13,8 +13,8 @@ import (
 const INFO string = "info"
 const ERROR string = "error"
 const ANSWER string = "answer"
+const SKIP_QUESTION string = "skip_question"
 const QUESTION string = "question"
-const NEXT_QUESTION string = "next_question"
 const GET_NEXT_QUESTION string = "get_next_question"
 const RESULT string = "result"
 const FINISHED string = "finished"
@@ -149,7 +149,7 @@ func (h *Hub) Run() {
 					h.rooms[message.RoomID] = room
 
 					msg := Message{
-						Message:     "Correct! Great Job!",
+						Message:     "correct",
 						MessageType: RESULT,
 					}
 
@@ -160,7 +160,7 @@ func (h *Hub) Run() {
 					}
 
 					sender.send <- messageToSend
-					msg.Message = "Wrong(("
+					msg.Message = "other_answered"
 
 					messageToSend, err = json.Marshal(msg)
 					if err != nil {
@@ -168,13 +168,13 @@ func (h *Hub) Run() {
 						continue
 					}
 
-					anotherClient.send <- messageToSend
+					anotherClient.send <- messageToSend //sending message when another user answered right
 
 					sendQuestion(room.GameState.Questions[room.GameState.CurrentIndex], room.Clients)
 
 				} else {
 					msg := Message{
-						Message:     "Wrong((",
+						Message:     "wrong",
 						MessageType: RESULT,
 					}
 
@@ -185,6 +185,19 @@ func (h *Hub) Run() {
 					}
 					sender.send <- messageToSend
 				}
+			}
+
+			if message.MessageType == SKIP_QUESTION {
+				room, ok := h.rooms[message.RoomID]
+				if !ok {
+					// Room not found
+					fmt.Println("room not found")
+					continue
+				}
+				room.GameState.CurrentIndex = room.GameState.CurrentIndex + 1
+				h.rooms[message.RoomID] = room
+
+				sendQuestion(room.GameState.Questions[room.GameState.CurrentIndex], room.Clients)
 			}
 
 		case <-time.After(time.Second * 5): // Adjust the interval as needed
