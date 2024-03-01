@@ -15,7 +15,6 @@ const ERROR string = "error"
 const ANSWER string = "answer"
 const SKIP_QUESTION string = "skip_question"
 const QUESTION string = "question"
-const GET_NEXT_QUESTION string = "get_next_question"
 const RESULT string = "result"
 const FINISHED string = "finished"
 const MATCH_FOUND string = "match_found"
@@ -131,7 +130,7 @@ func (h *Hub) Run() {
 					}
 
 					room.GameState.CurrentIndex = room.GameState.CurrentIndex + 1
-					room.GameState.ClientRightCounts[sender.clientID] = room.GameState.ClientRightCounts[sender.clientID] + 1
+					room.GameState.ClientRightCounts[sender.clientID] = room.GameState.ClientRightCounts[sender.clientID] + 2
 
 					h.rooms[message.RoomID] = room
 
@@ -238,7 +237,7 @@ func (h *Hub) Run() {
 
 				//then here we query the questions and send the first question
 				var questions []migrated_models.HistoryQuestion
-				models.DB.Limit(20).Find(&questions)
+				models.DB.Limit(10).Find(&questions)
 
 				h.rooms[room] = Room{
 					Clients: connections,
@@ -271,16 +270,18 @@ func (h *Hub) finishTheGame(room Room, sender *Client, anotherClient *Client, sk
 	if skippedLastQuestion {
 		userResult = room.GameState.ClientRightCounts[sender.clientID]
 	} else {
-		userResult = room.GameState.ClientRightCounts[sender.clientID] + 1 //+1 cause he answered this question right as well
+		userResult = room.GameState.ClientRightCounts[sender.clientID] + 2 //+1 cause he answered this question right as well
 	}
 
-	resultMessage, err := json.Marshal(struct {
+	result := struct {
 		UserResult     int
 		OpponentResult int
 	}{
 		UserResult:     userResult,
 		OpponentResult: room.GameState.ClientRightCounts[anotherClient.clientID],
-	})
+	}
+
+	resultMessage, err := json.Marshal(result)
 
 	msg := Message{
 		Message:     string(resultMessage),
@@ -294,7 +295,32 @@ func (h *Hub) finishTheGame(room Room, sender *Client, anotherClient *Client, sk
 	}
 
 	sender.send <- messageToSend
+
+	result.UserResult, result.OpponentResult = result.OpponentResult, result.UserResult
+	resultMessage, err = json.Marshal(result)
+
+	msg = Message{
+		Message:     string(resultMessage),
+		MessageType: FINISHED,
+	}
+
+	messageToSend, err = json.Marshal(msg)
+	if err != nil {
+		fmt.Println("Error marshaling message:", err)
+		return
+	}
+
 	anotherClient.send <- messageToSend
+
+	var firstUser migrated_models.User
+	models.DB.Where("id = ?", sender.clientID).First(&firstUser)
+	firstUser.Points += result.OpponentResult
+	models.DB.Save(&firstUser)
+
+	var secondUser migrated_models.User
+	models.DB.Where("id = ?", anotherClient.clientID).First(&secondUser)
+	secondUser.Points += result.UserResult
+	models.DB.Save(&secondUser)
 
 	h.unregister <- sender
 	h.unregister <- anotherClient
