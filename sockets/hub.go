@@ -126,26 +126,13 @@ func (h *Hub) Run() {
 				if room.GameState.Questions[room.GameState.CurrentIndex].RightAnswer == parsedAnswerMessage.Answer {
 					if room.GameState.CurrentIndex+1 == len(room.GameState.Questions) {
 						//finishing the game
-						msg := Message{
-							Message:     "Congratulation the game is finished",
-							MessageType: FINISHED,
-						}
-
-						messageToSend, err := json.Marshal(msg)
-						if err != nil {
-							fmt.Println("Error marshaling message:", err)
-							continue
-						}
-
-						sender.send <- messageToSend
-						anotherClient.send <- messageToSend
-
-						h.unregister <- sender
-						h.unregister <- anotherClient
+						h.finishTheGame(room, sender, anotherClient, false)
 						continue
 					}
 
 					room.GameState.CurrentIndex = room.GameState.CurrentIndex + 1
+					room.GameState.ClientRightCounts[sender.clientID] = room.GameState.ClientRightCounts[sender.clientID] + 1
+
 					h.rooms[message.RoomID] = room
 
 					msg := Message{
@@ -194,6 +181,23 @@ func (h *Hub) Run() {
 					fmt.Println("room not found")
 					continue
 				}
+
+				if room.GameState.CurrentIndex+1 == len(room.GameState.Questions) {
+					//finishing the game
+					var firstClient *Client
+					var secondClient *Client
+
+					for client := range room.Clients {
+						if firstClient == nil {
+							firstClient = client
+						} else {
+							secondClient = client
+						}
+					}
+					h.finishTheGame(room, firstClient, secondClient, true)
+					continue
+				}
+
 				room.GameState.CurrentIndex = room.GameState.CurrentIndex + 1
 				h.rooms[message.RoomID] = room
 
@@ -260,6 +264,40 @@ func sendQuestion(question migrated_models.HistoryQuestion, clients map[*Client]
 		})
 		client.send <- messageToSend
 	}
+}
+
+func (h *Hub) finishTheGame(room Room, sender *Client, anotherClient *Client, skippedLastQuestion bool) {
+	var userResult int
+	if skippedLastQuestion {
+		userResult = room.GameState.ClientRightCounts[sender.clientID]
+	} else {
+		userResult = room.GameState.ClientRightCounts[sender.clientID] + 1 //+1 cause he answered this question right as well
+	}
+
+	resultMessage, err := json.Marshal(struct {
+		UserResult     int
+		OpponentResult int
+	}{
+		UserResult:     userResult,
+		OpponentResult: room.GameState.ClientRightCounts[anotherClient.clientID],
+	})
+
+	msg := Message{
+		Message:     string(resultMessage),
+		MessageType: FINISHED,
+	}
+
+	messageToSend, err := json.Marshal(msg)
+	if err != nil {
+		fmt.Println("Error marshaling message:", err)
+		return
+	}
+
+	sender.send <- messageToSend
+	anotherClient.send <- messageToSend
+
+	h.unregister <- sender
+	h.unregister <- anotherClient
 }
 
 func (h *Hub) removeFromRooms(client *Client) {
