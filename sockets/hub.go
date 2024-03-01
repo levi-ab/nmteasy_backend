@@ -35,7 +35,6 @@ type Hub struct {
 	clients map[*Client]bool
 
 	// Mapping of user IDs to their respective clients.
-	userClients map[uuid.UUID]*Client
 
 	//Match Making queue
 	matchmakingQueue []*Client
@@ -69,7 +68,6 @@ func NewHub() *Hub {
 		register:         make(chan *Client),
 		unregister:       make(chan *Client),
 		clients:          make(map[*Client]bool),
-		userClients:      make(map[uuid.UUID]*Client),
 		matchmakingQueue: make([]*Client, 0),
 		rooms:            make(map[string]Room),
 	}
@@ -80,13 +78,11 @@ func (h *Hub) Run() {
 		select {
 		case client := <-h.register:
 			h.clients[client] = true
-			h.userClients[client.clientID] = client
 		case client := <-h.unregister:
 			if _, ok := h.clients[client]; ok {
 				h.removeFromRooms(client)
 				h.removeFromMatchmakingQueue(client)
 				delete(h.clients, client)
-				delete(h.userClients, client.clientID)
 				close(client.send)
 			}
 		case message := <-h.broadcast:
@@ -216,7 +212,8 @@ func (h *Hub) Run() {
 
 				// Notify clients that they have found a match
 				msg := Message{
-					Message:     room,
+					RoomID:      room,
+					Message:     client2.clientName,
 					MessageType: MATCH_FOUND,
 				}
 
@@ -226,6 +223,15 @@ func (h *Hub) Run() {
 					continue
 				}
 				client1.send <- messageToSend
+
+				msg.Message = client1.clientName
+
+				messageToSend, err = json.Marshal(msg)
+				if err != nil {
+					fmt.Println("Error marshaling message:", err)
+					continue
+				}
+
 				client2.send <- messageToSend
 
 				client2.IsInQueue = false

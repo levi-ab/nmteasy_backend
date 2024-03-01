@@ -44,16 +44,14 @@ var upgrader = websocket.Upgrader{
 
 // Client is a middleman between the websocket connection and the hub.
 type Client struct {
-	hub *Hub
-
-	// The websocket connection.
+	hub            *Hub
 	clientID       uuid.UUID //client id
-	IsInQueue      bool      //weather the client is in queue
-	conn           *websocket.Conn
+	clientName     string
+	IsInQueue      bool            //whether the client is in queue
+	conn           *websocket.Conn // the websocket connection.
 	CorrectAnswers int
-	// Buffered channel of outbound messages.
-	send       chan []byte
-	writeMutex sync.Mutex
+	send           chan []byte // channel of outbound messages.
+	writeMutex     sync.Mutex
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -188,7 +186,7 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256), clientID: user.ID}
+	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256), clientID: user.ID, clientName: user.FirstName + " " + user.LastName}
 	client.hub.register <- client
 
 	// Allow collection of memory referenced by the caller by doing all work in
