@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const INFO string = "info"
+const OPPONENT_DISCONECTED string = "opponent_disconnected"
 const ERROR string = "error"
 const ANSWER string = "answer"
 const SKIP_QUESTION string = "skip_question"
@@ -332,32 +332,52 @@ func (h *Hub) finishTheGame(room Room, sender *Client, anotherClient *Client, sk
 	h.unregister <- anotherClient
 }
 
-func (h *Hub) removeFromRooms(client *Client) {
+func (h *Hub) removeFromRooms(clientToRemove *Client) {
 	// Create a new map for updated rooms
 	updatedRooms := make(map[string]Room)
 
 	// Iterate over each room
-	for roomID, clients := range h.rooms {
-		// Check if the client is in the room
-		if !strings.Contains(roomID, client.clientID.String()) {
-			// If the room ID doesn't contain the client's clientID, include it in the updated map
-			updatedRooms[roomID] = clients
+	for roomID, room := range h.rooms {
+		// Check if the clientToRemove is in the room
+		if !strings.Contains(roomID, clientToRemove.clientID.String()) {
+			// If the room ID doesn't contain the clientToRemove's clientID, include it in the updated map
+			updatedRooms[roomID] = room
 		} else {
-			for otherClientConn := range clients.Clients {
-				if otherClientConn.conn != client.conn {
-					message := "The other user has disconnected."
+			for anotherClientConn := range room.Clients {
+				if anotherClientConn.conn != clientToRemove.conn {
+
+					result := struct {
+						UserResult     int
+						OpponentResult int
+					}{
+						UserResult:     room.GameState.ClientRightCounts[anotherClientConn.clientID],
+						OpponentResult: room.GameState.ClientRightCounts[clientToRemove.clientID],
+					}
+
+					resultMessage, _ := json.Marshal(result)
 
 					messageToSend := Message{
-						Message:     message,
-						MessageType: INFO,
+						Message:     string(resultMessage),
+						MessageType: OPPONENT_DISCONECTED,
 						RoomID:      roomID,
 					}
 
 					jsonMessage, _ := json.Marshal(messageToSend)
 
-					otherClientConn.send <- jsonMessage
-					otherClientConn.conn.Close()
-					break // Assuming there's only one other client in the room
+					anotherClientConn.send <- jsonMessage
+
+					var firstUser migrated_models.User
+					models.DB.Where("id = ?", clientToRemove.clientID).First(&firstUser)
+					firstUser.Points += result.OpponentResult
+					models.DB.Save(&firstUser)
+
+					var secondUser migrated_models.User
+					models.DB.Where("id = ?", anotherClientConn.clientID).First(&secondUser)
+					secondUser.Points += result.UserResult
+					models.DB.Save(&secondUser)
+
+					delete(h.clients, anotherClientConn)
+					break // Assuming there's only one other clientToRemove in the room
 				}
 			}
 		}
@@ -365,6 +385,7 @@ func (h *Hub) removeFromRooms(client *Client) {
 
 	// Replace the original rooms with the updated map
 	h.rooms = updatedRooms
+	clientToRemove.conn.Close()
 }
 
 func (h *Hub) removeFromMatchmakingQueue(client *Client) {

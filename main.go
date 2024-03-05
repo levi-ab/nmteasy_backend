@@ -40,6 +40,6 @@ func main() {
 			}
 		}
 	}()
-
-	server.ListenAndServe()
+	
+	server.ListenAndServeTLS("chained.crt", "key.key")
 }
