@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"nmteasy_backend/models"
 	"nmteasy_backend/models/migrated_models"
+	"nmteasy_backend/utils"
 	"strings"
 	"time"
 )
@@ -25,9 +26,9 @@ type Room struct {
 }
 
 type GameState struct {
-	Questions         []migrated_models.HistoryQuestion `json:"questions"`
-	CurrentIndex      int                               `json:"currentIndex"`
-	ClientRightCounts map[uuid.UUID]int                 `json:"clientRightCounts"`
+	Questions         []models.Question `json:"questions"`
+	CurrentIndex      int               `json:"currentIndex"`
+	ClientRightCounts map[uuid.UUID]int `json:"clientRightCounts"`
 }
 
 type Hub struct {
@@ -37,7 +38,7 @@ type Hub struct {
 	// Mapping of user IDs to their respective clients.
 
 	//Match Making queue
-	matchmakingQueue []*Client
+	questionTypeQueues map[string][]*Client
 
 	rooms map[string]Room
 
@@ -64,12 +65,12 @@ type AnswerMessage struct {
 
 func NewHub() *Hub {
 	return &Hub{
-		broadcast:        make(chan *Message),
-		register:         make(chan *Client),
-		unregister:       make(chan *Client),
-		clients:          make(map[*Client]bool),
-		matchmakingQueue: make([]*Client, 0),
-		rooms:            make(map[string]Room),
+		broadcast:          make(chan *Message),
+		register:           make(chan *Client),
+		unregister:         make(chan *Client),
+		clients:            make(map[*Client]bool),
+		questionTypeQueues: make(map[string][]*Client, 0),
+		rooms:              make(map[string]Room),
 	}
 }
 
@@ -199,67 +200,68 @@ func (h *Hub) Run() {
 				sendQuestion(room.GameState.Questions[room.GameState.CurrentIndex], room.Clients)
 			}
 
-		case <-time.After(time.Second * 5): // Adjust the interval as needed
-			if len(h.matchmakingQueue) >= 2 {
-				// Take the first two clients from the queue
-				client1 := h.matchmakingQueue[0]
-				client2 := h.matchmakingQueue[1]
+		case <-time.After(time.Second):
+			for questionType, queue := range h.questionTypeQueues { // Adjust the interval as needed
+				if len(queue) >= 2 {
+					// Take the first two clients from the queue
+					client1 := queue[0]
+					client2 := queue[1]
 
-				// Remove them from the queue
-				h.matchmakingQueue = h.matchmakingQueue[2:]
+					// Remove them from the queue
+					h.questionTypeQueues[questionType] = queue[2:]
 
-				room := client1.clientID.String() + client2.clientID.String()
+					room := client1.clientID.String() + client2.clientID.String() + questionType
 
-				// Notify clients that they have found a match
-				msg := Message{
-					RoomID:      room,
-					Message:     client2.clientName,
-					MessageType: MATCH_FOUND,
+					// Notify clients that they have found a match
+					msg := Message{
+						RoomID:      room,
+						Message:     client2.clientName,
+						MessageType: MATCH_FOUND,
+					}
+
+					messageToSend, err := json.Marshal(msg)
+					if err != nil {
+						fmt.Println("Error marshaling message:", err)
+						continue
+					}
+					client1.send <- messageToSend
+
+					msg.Message = client1.clientName
+
+					messageToSend, err = json.Marshal(msg)
+					if err != nil {
+						fmt.Println("Error marshaling message:", err)
+						continue
+					}
+
+					client2.send <- messageToSend
+
+					client2.queueName = ""
+					client1.queueName = ""
+
+					connections := make(map[*Client]bool)
+					connections[client1] = true
+					connections[client2] = true
+
+					//then here we query the questions and send the first question
+					questions, err := utils.GetRandomQuestionsByType(questionType, 10)
+
+					h.rooms[room] = Room{
+						Clients: connections,
+						GameState: GameState{
+							Questions:         questions,
+							ClientRightCounts: make(map[uuid.UUID]int),
+						},
+					}
+
+					sendQuestion(questions[0], connections)
 				}
-
-				messageToSend, err := json.Marshal(msg)
-				if err != nil {
-					fmt.Println("Error marshaling message:", err)
-					continue
-				}
-				client1.send <- messageToSend
-
-				msg.Message = client1.clientName
-
-				messageToSend, err = json.Marshal(msg)
-				if err != nil {
-					fmt.Println("Error marshaling message:", err)
-					continue
-				}
-
-				client2.send <- messageToSend
-
-				client2.IsInQueue = false
-				client1.IsInQueue = false
-
-				connections := make(map[*Client]bool)
-				connections[client1] = true
-				connections[client2] = true
-
-				//then here we query the questions and send the first question
-				var questions []migrated_models.HistoryQuestion
-				models.DB.Limit(10).Find(&questions)
-
-				h.rooms[room] = Room{
-					Clients: connections,
-					GameState: GameState{
-						Questions:         questions,
-						ClientRightCounts: make(map[uuid.UUID]int),
-					},
-				}
-
-				sendQuestion(questions[0], connections)
 			}
 		}
 	}
 }
 
-func sendQuestion(question migrated_models.HistoryQuestion, clients map[*Client]bool) {
+func sendQuestion(question models.Question, clients map[*Client]bool) {
 	stringQuestion, _ := json.Marshal(question)
 
 	for client := range clients {
@@ -273,18 +275,23 @@ func sendQuestion(question migrated_models.HistoryQuestion, clients map[*Client]
 
 func (h *Hub) finishTheGame(room Room, sender *Client, anotherClient *Client, skippedLastQuestion bool) {
 	var userResult int
+	var UserAnsweredLast bool
+
 	if skippedLastQuestion {
 		userResult = room.GameState.ClientRightCounts[sender.clientID]
 	} else {
 		userResult = room.GameState.ClientRightCounts[sender.clientID] + 2 //+1 cause he answered this question right as well
+		UserAnsweredLast = true
 	}
 
 	result := struct {
 		UserResult     int
 		OpponentResult int
+		AnsweredLast   bool
 	}{
 		UserResult:     userResult,
 		OpponentResult: room.GameState.ClientRightCounts[anotherClient.clientID],
+		AnsweredLast:   UserAnsweredLast,
 	}
 
 	resultMessage, err := json.Marshal(result)
@@ -303,6 +310,8 @@ func (h *Hub) finishTheGame(room Room, sender *Client, anotherClient *Client, sk
 	sender.send <- messageToSend
 
 	result.UserResult, result.OpponentResult = result.OpponentResult, result.UserResult
+	result.AnsweredLast = false
+
 	resultMessage, err = json.Marshal(result)
 
 	msg = Message{
@@ -391,10 +400,10 @@ func (h *Hub) removeFromRooms(clientToRemove *Client) {
 func (h *Hub) removeFromMatchmakingQueue(client *Client) {
 	// Create a new queue without the client
 	var updatedQueue []*Client
-	for _, c := range h.matchmakingQueue {
+	for _, c := range h.questionTypeQueues[client.queueName] {
 		if c.clientID != client.clientID {
 			updatedQueue = append(updatedQueue, c)
 		}
 	}
-	h.matchmakingQueue = updatedQueue
+	h.questionTypeQueues[client.queueName] = updatedQueue
 }

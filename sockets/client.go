@@ -50,7 +50,7 @@ type Client struct {
 	hub            *Hub
 	clientID       uuid.UUID //client id
 	clientName     string
-	IsInQueue      bool            //whether the client is in queue
+	queueName      string          //whether the client is in queue
 	conn           *websocket.Conn // the websocket connection.
 	CorrectAnswers int
 	send           chan []byte // channel of outbound messages.
@@ -106,10 +106,10 @@ func (c *Client) readPump() {
 
 		if targetMessage.MessageType == "join_matchmaking" {
 			// Set the client state to indicate they are in the matchmaking queue
-			c.IsInQueue = true
+			c.queueName = targetMessage.Message
 
 			// Add the client to the matchmaking queue
-			c.hub.matchmakingQueue = append(c.hub.matchmakingQueue, c)
+			c.hub.questionTypeQueues[targetMessage.Message] = append(c.hub.questionTypeQueues[targetMessage.Message], c)
 			continue
 		}
 	}
