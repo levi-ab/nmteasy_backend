@@ -4,6 +4,7 @@ import (
 	"github.com/gorilla/mux"
 	"net/http"
 	"nmteasy_backend/middleware"
+	"nmteasy_backend/sockets"
 )
 
 func New() http.Handler {
@@ -36,6 +37,12 @@ func New() http.Handler {
 	router.HandleFunc("/match-questions/{lessonType}", middleware.Protected(GetMatchQuestions)).Methods("GET")
 	router.HandleFunc("/wrong-answer-questions/{lessonType}", middleware.Protected(GetWrongAnsweredQuestions)).Methods("GET")
 	router.HandleFunc("/image-questions/{lessonType}", middleware.Protected(GetImageQuestions)).Methods("GET")
+
+	hub := sockets.NewHub()
+	go hub.Run()
+	router.HandleFunc("/ws/{token}", func(w http.ResponseWriter, r *http.Request) {
+		sockets.ServeWs(hub, w, r)
+	})
 
 	return router
 }

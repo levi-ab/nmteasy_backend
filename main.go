@@ -30,7 +30,7 @@ func main() {
 		ticker := time.NewTicker(7 * 24 * time.Hour)
 
 		// Run the function immediately before waiting for the first tick
-		utils.ResetLeagues()
+		//utils.ResetLeagues()
 
 		// Loop to run the function every time the ticker ticks
 		for {
@@ -40,6 +40,6 @@ func main() {
 			}
 		}
 	}()
-
-	server.ListenAndServe()
+	
+	server.ListenAndServeTLS("chained.crt", "key.key")
 }

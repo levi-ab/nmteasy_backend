@@ -16,30 +16,9 @@ func GetRandomQuestions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lessonType := mux.Vars(r)["lessonType"]
-	var questions []models.Question
-
-	rows, err := models.DB.
-		Raw(fmt.Sprintf(`SELECT id, question_text, question_image, answers, type, right_answer, topic, created_at, updated_at, %s_lesson_id as lesson_id
-    FROM %s_questions  ORDER BY RANDOM()  LIMIT 20`, lessonType, lessonType)).Rows()
-
+	questions, err := utils.GetRandomQuestionsByType(lessonType, 20)
 	if err != nil {
 		utils.RespondWithError(w, http.StatusInternalServerError, "Failed to get questions")
-		return
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var question models.Question
-		if err := models.DB.ScanRows(rows, &question); err != nil {
-			utils.RespondWithError(w, http.StatusInternalServerError, "Failed to scan rows")
-			return
-		}
-
-		questions = append(questions, question)
-	}
-
-	if err := rows.Err(); err != nil {
-		utils.RespondWithError(w, http.StatusInternalServerError, "Error during rows iteration")
 		return
 	}
 
@@ -172,5 +151,4 @@ func GetWrongAnsweredQuestions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.RespondWithJSON(w, http.StatusOK, questions)
-
 }
