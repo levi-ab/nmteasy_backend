@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
+	"math/rand"
 	"nmteasy_backend/models"
-	"nmteasy_backend/models/migrated_models"
 	"nmteasy_backend/utils"
 	"strings"
 	"time"
@@ -19,6 +19,8 @@ const QUESTION string = "question"
 const RESULT string = "result"
 const FINISHED string = "finished"
 const MATCH_FOUND string = "match_found"
+
+const DEFAULT_BOT_TIME_WAIT = 10 * time.Second
 
 type Room struct {
 	Clients   map[*Client]bool `json:"-"`
@@ -78,6 +80,7 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case client := <-h.register:
+			client.joinedAt = time.Now()
 			h.clients[client] = true
 		case client := <-h.unregister:
 			if _, ok := h.clients[client]; ok {
@@ -97,7 +100,6 @@ func (h *Hub) Run() {
 				}
 
 				var parsedAnswerMessage AnswerMessage
-
 				if err := json.Unmarshal([]byte(message.Message), &parsedAnswerMessage); err != nil {
 					fmt.Println("failed to parse the answer")
 					continue
@@ -167,6 +169,24 @@ func (h *Hub) Run() {
 						continue
 					}
 					sender.send <- messageToSend
+					if sender.clientName != DEFAULT_BOT_NANE {
+						hasBotClient := false
+						for client := range room.Clients {
+							if client.clientName == DEFAULT_BOT_NANE {
+								hasBotClient = true
+								break
+							}
+						}
+
+						// If there's a bot, simulate its answer with a delay
+						if hasBotClient {
+							go func(r Room, roomID string) {
+								// Random delay before bot answers (between 1-4 seconds)
+								time.Sleep(time.Duration(rand.Intn(3000)+1000) * time.Millisecond)
+								h.simulateBotAnswer(r, roomID)
+							}(room, message.RoomID)
+						}
+					}
 				}
 			}
 
@@ -202,12 +222,20 @@ func (h *Hub) Run() {
 
 		case <-time.After(time.Second):
 			for questionType, queue := range h.questionTypeQueues { // Adjust the interval as needed
-				if len(queue) >= 2 {
+				if len(queue) == 1 {
+					client := queue[0]
+					if time.Since(client.joinedAt) >= DEFAULT_BOT_TIME_WAIT {
+						// Create a bot client
+						botClient := h.createBotClient(questionType)
+
+						// Add bot to the queue
+						h.questionTypeQueues[questionType] = append(h.questionTypeQueues[questionType], botClient)
+					}
+				} else if len(queue) >= 2 {
 					// Take the first two clients from the queue
 					client1 := queue[0]
 					client2 := queue[1]
 
-					// Remove them from the queue
 					h.questionTypeQueues[questionType] = queue[2:]
 
 					room := client1.clientID.String() + client2.clientID.String() + questionType
@@ -219,22 +247,18 @@ func (h *Hub) Run() {
 						MessageType: MATCH_FOUND,
 					}
 
-					messageToSend, err := json.Marshal(msg)
-					if err != nil {
-						fmt.Println("Error marshaling message:", err)
-						continue
+					// Send match found messages (adjust for potential bot client)
+					if client1.conn != nil {
+						messageToSend, _ := json.Marshal(msg)
+						client1.send <- messageToSend
 					}
-					client1.send <- messageToSend
 
 					msg.Message = client1.clientName
 
-					messageToSend, err = json.Marshal(msg)
-					if err != nil {
-						fmt.Println("Error marshaling message:", err)
-						continue
+					if client2.conn != nil {
+						messageToSend, _ := json.Marshal(msg)
+						client2.send <- messageToSend
 					}
-
-					client2.send <- messageToSend
 
 					client2.queueName = ""
 					client1.queueName = ""
@@ -243,8 +267,12 @@ func (h *Hub) Run() {
 					connections[client1] = true
 					connections[client2] = true
 
-					//then here we query the questions and send the first question
+					// Query questions
 					questions, err := utils.GetRandomQuestionsByType(questionType, 10)
+					if err != nil {
+						fmt.Println("Error getting questions:", err)
+						continue
+					}
 
 					h.rooms[room] = Room{
 						Clients: connections,
@@ -327,15 +355,8 @@ func (h *Hub) finishTheGame(room Room, sender *Client, anotherClient *Client, sk
 
 	anotherClient.send <- messageToSend
 
-	var firstUser migrated_models.User
-	models.DB.Where("id = ?", sender.clientID).First(&firstUser)
-	firstUser.Points += result.OpponentResult
-	models.DB.Save(&firstUser)
-
-	var secondUser migrated_models.User
-	models.DB.Where("id = ?", anotherClient.clientID).First(&secondUser)
-	secondUser.Points += result.UserResult
-	models.DB.Save(&secondUser)
+	UpdateUserPoints(sender.clientID, result.OpponentResult)
+	UpdateUserPoints(anotherClient.clientID, result.UserResult)
 
 	h.unregister <- sender
 	h.unregister <- anotherClient
@@ -375,15 +396,8 @@ func (h *Hub) removeFromRooms(clientToRemove *Client) {
 
 					anotherClientConn.send <- jsonMessage
 
-					var firstUser migrated_models.User
-					models.DB.Where("id = ?", clientToRemove.clientID).First(&firstUser)
-					firstUser.Points += result.OpponentResult
-					models.DB.Save(&firstUser)
-
-					var secondUser migrated_models.User
-					models.DB.Where("id = ?", anotherClientConn.clientID).First(&secondUser)
-					secondUser.Points += result.UserResult
-					models.DB.Save(&secondUser)
+					UpdateUserPoints(clientToRemove.clientID, result.OpponentResult)
+					UpdateUserPoints(anotherClientConn.clientID, result.UserResult)
 
 					delete(h.clients, anotherClientConn)
 					break // Assuming there's only one other clientToRemove in the room

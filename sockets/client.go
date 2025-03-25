@@ -55,6 +55,7 @@ type Client struct {
 	CorrectAnswers int
 	send           chan []byte // channel of outbound messages.
 	writeMutex     sync.Mutex
+	joinedAt       time.Time
 }
 
 // readPump pumps messages from the websocket connection to the hub.
