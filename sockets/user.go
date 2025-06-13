@@ -8,6 +8,7 @@ import (
 
 func UpdateUserPoints(userID uuid.UUID, points int) {
 	var user migrated_models.User
+	print("updating point")
 	err := models.DB.Where("id = ?", userID).First(&user).Error
 	if err == nil {
 		user.Points += points

@@ -8,6 +8,7 @@ import (
 	"nmteasy_backend/models"
 	"nmteasy_backend/utils"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,11 +21,12 @@ const RESULT string = "result"
 const FINISHED string = "finished"
 const MATCH_FOUND string = "match_found"
 
-const DEFAULT_BOT_TIME_WAIT = 10 * time.Second
+const DEFAULT_BOT_TIME_WAIT = 20 * time.Second
 
 type Room struct {
 	Clients   map[*Client]bool `json:"-"`
 	GameState GameState        `json:"gameState"`
+	mutex     sync.RWMutex     `json:"-"`
 }
 
 type GameState struct {
@@ -33,31 +35,36 @@ type GameState struct {
 	ClientRightCounts map[uuid.UUID]int `json:"clientRightCounts"`
 }
 
-type Hub struct {
-	// Registered clients.
-	clients map[*Client]bool
+type ConcurrentHub struct {
+	// Thread-safe client storage
+	clients sync.Map // map[*Client]bool
 
-	// Mapping of user IDs to their respective clients.
+	// Thread-safe room storage
+	rooms sync.Map // map[string]*Room
 
-	//Match Making queue
-	questionTypeQueues map[string][]*Client
+	// Thread-safe queue storage
+	questionTypeQueues sync.Map // map[string][]*Client
+	queueMutex         sync.RWMutex
 
-	rooms map[string]Room
-
-	// Inbound messages from the clients.
-	broadcast chan *Message // Use a Message type to include sender and target information.
-
-	// Register requests from the clients.
-	register chan *Client
-
-	// Unregister requests from clients.
+	// Channels for different operations
+	broadcast  chan *Message
+	register   chan *Client
 	unregister chan *Client
+
+	// Worker configuration
+	messageWorkers    int
+	matchmakingTicker *time.Ticker
+
+	// Shutdown coordination
+	shutdown chan struct{}
+	wg       sync.WaitGroup
 }
 
 type Message struct {
 	Message     string
 	RoomID      string
 	MessageType string
+	ClientID    uuid.UUID
 }
 
 type AnswerMessage struct {
@@ -65,231 +72,337 @@ type AnswerMessage struct {
 	UserID uuid.UUID
 }
 
-func NewHub() *Hub {
-	return &Hub{
-		broadcast:          make(chan *Message),
-		register:           make(chan *Client),
-		unregister:         make(chan *Client),
-		clients:            make(map[*Client]bool),
-		questionTypeQueues: make(map[string][]*Client, 0),
-		rooms:              make(map[string]Room),
+func NewHub() *ConcurrentHub {
+	return &ConcurrentHub{
+		broadcast:         make(chan *Message, 1000),
+		register:          make(chan *Client, 100),
+		unregister:        make(chan *Client, 100),
+		messageWorkers:    10,
+		matchmakingTicker: time.NewTicker(time.Second),
+		shutdown:          make(chan struct{}),
 	}
 }
 
-func (h *Hub) Run() {
+func (h *ConcurrentHub) Run() {
+	// Start registration handle
+	go h.handleRegistrations()
+
+	// Start message processing workers
+	for i := 0; i < h.messageWorkers; i++ {
+		h.wg.Add(1)
+		go h.messageWorker(i)
+	}
+
+	go h.handleMatchmaking()
+
+	// Wait for shutdown
+	<-h.shutdown
+
+	// Close channels and wait for goroutines to finish
+	close(h.broadcast)
+	close(h.register)
+	close(h.unregister)
+	h.matchmakingTicker.Stop()
+
+	h.wg.Wait()
+}
+
+func (h *ConcurrentHub) Shutdown() {
+	close(h.shutdown)
+}
+
+func (h *ConcurrentHub) handleRegistrations() {
+	defer h.wg.Done()
+
 	for {
 		select {
 		case client := <-h.register:
-			client.joinedAt = time.Now()
-			h.clients[client] = true
+			if client != nil {
+				client.joinedAt = time.Now()
+				h.clients.Store(client, true)
+			}
+
 		case client := <-h.unregister:
-			if _, ok := h.clients[client]; ok {
-				h.removeFromRooms(client)
-				h.removeFromMatchmakingQueue(client)
-				delete(h.clients, client)
-				close(client.send)
+			if client != nil {
+				if _, ok := h.clients.Load(client); ok {
+					h.removeFromRooms(client)
+					h.removeFromMatchmakingQueue(client)
+					h.clients.Delete(client)
+					//close(client.send)
+				}
 			}
+
+		case <-h.shutdown:
+			return
+		}
+	}
+}
+
+func (h *ConcurrentHub) messageWorker(workerID int) {
+	defer h.wg.Done()
+
+	for {
+		select {
 		case message := <-h.broadcast:
-			//here we accept answers and send the next questions???
-			if message.MessageType == ANSWER {
-				room, ok := h.rooms[message.RoomID]
-				if !ok {
-					// Room not found
-					fmt.Println("room not found")
-					continue
-				}
+			if message != nil {
+				h.processMessage(message)
+			}
+		case <-h.shutdown:
+			return
+		}
+	}
+}
 
-				var parsedAnswerMessage AnswerMessage
-				if err := json.Unmarshal([]byte(message.Message), &parsedAnswerMessage); err != nil {
-					fmt.Println("failed to parse the answer")
-					continue
-				}
+func (h *ConcurrentHub) processMessage(message *Message) {
+	switch message.MessageType {
+	case ANSWER:
+		h.handleAnswer(message)
+	case SKIP_QUESTION:
+		h.handleSkipQuestion(message)
+	}
+}
 
-				var sender *Client
-				var anotherClient *Client
-				//i dont like how i do this, it is very confusing, spend like 5 min to understand wtf is going on todo
-				for client := range room.Clients {
-					if client.clientID == parsedAnswerMessage.UserID {
-						sender = client
-					} else {
-						anotherClient = client
-					}
-				}
+func (h *ConcurrentHub) handleAnswer(message *Message) {
+	roomInterface, ok := h.rooms.Load(message.RoomID)
+	if !ok {
+		fmt.Println("room not found")
+		return
+	}
 
-				if sender == nil {
-					fmt.Println("failed to determine the sender")
-					continue
-				}
+	room := roomInterface.(*Room)
+	room.mutex.Lock()
+	defer room.mutex.Unlock()
 
-				if room.GameState.Questions[room.GameState.CurrentIndex].RightAnswer == parsedAnswerMessage.Answer {
-					if room.GameState.CurrentIndex+1 == len(room.GameState.Questions) {
-						//finishing the game
-						h.finishTheGame(room, sender, anotherClient, false)
-						continue
-					}
+	var parsedAnswerMessage AnswerMessage
+	if err := json.Unmarshal([]byte(message.Message), &parsedAnswerMessage); err != nil {
+		fmt.Println("failed to parse the answer")
+		return
+	}
 
-					room.GameState.CurrentIndex = room.GameState.CurrentIndex + 1
-					room.GameState.ClientRightCounts[sender.clientID] = room.GameState.ClientRightCounts[sender.clientID] + 2
+	var sender *Client
+	var anotherClient *Client
 
-					h.rooms[message.RoomID] = room
+	for client := range room.Clients {
+		if client.clientID == parsedAnswerMessage.UserID {
+			sender = client
+		} else {
+			anotherClient = client
+		}
+	}
 
-					msg := Message{
-						Message:     "correct",
-						MessageType: RESULT,
-					}
+	if sender == nil {
+		fmt.Println("failed to determine the sender")
+		return
+	}
 
-					messageToSend, err := json.Marshal(msg)
-					if err != nil {
-						fmt.Println("Error marshaling message:", err)
-						continue
-					}
+	if room.GameState.Questions[room.GameState.CurrentIndex].RightAnswer == parsedAnswerMessage.Answer {
+		if room.GameState.CurrentIndex+1 == len(room.GameState.Questions) {
+			// Finishing the game
+			h.finishTheGame(room, sender, anotherClient, false)
+			return
+		}
 
-					sender.send <- messageToSend
-					msg.Message = "other_answered"
+		room.GameState.CurrentIndex = room.GameState.CurrentIndex + 1
+		room.GameState.ClientRightCounts[sender.clientID] = room.GameState.ClientRightCounts[sender.clientID] + 2
 
-					messageToSend, err = json.Marshal(msg)
-					if err != nil {
-						fmt.Println("Error marshaling message:", err)
-						continue
-					}
+		msg := Message{
+			Message:     "correct",
+			MessageType: RESULT,
+		}
 
-					anotherClient.send <- messageToSend //sending message when another user answered right
+		messageToSend, err := json.Marshal(msg)
+		if err != nil {
+			fmt.Println("Error marshaling message:", err)
+			return
+		}
 
-					sendQuestion(room.GameState.Questions[room.GameState.CurrentIndex], room.Clients)
+		sender.send <- messageToSend
+		msg.Message = "other_answered"
 
-				} else {
-					msg := Message{
-						Message:     "wrong",
-						MessageType: RESULT,
-					}
+		messageToSend, err = json.Marshal(msg)
+		if err != nil {
+			fmt.Println("Error marshaling message:", err)
+			return
+		}
 
-					messageToSend, err := json.Marshal(msg)
-					if err != nil {
-						fmt.Println("Error marshaling message:", err)
-						continue
-					}
-					sender.send <- messageToSend
-					if sender.clientName != DEFAULT_BOT_NANE {
-						hasBotClient := false
-						for client := range room.Clients {
-							if client.clientName == DEFAULT_BOT_NANE {
-								hasBotClient = true
-								break
-							}
-						}
+		anotherClient.send <- messageToSend
 
-						// If there's a bot, simulate its answer with a delay
-						if hasBotClient {
-							go func(r Room, roomID string) {
-								// Random delay before bot answers (between 1-4 seconds)
-								time.Sleep(time.Duration(rand.Intn(3000)+1000) * time.Millisecond)
-								h.simulateBotAnswer(r, roomID)
-							}(room, message.RoomID)
-						}
-					}
+		h.sendQuestion(room.GameState.Questions[room.GameState.CurrentIndex], room.Clients)
+
+	} else {
+		msg := Message{
+			Message:     "wrong",
+			MessageType: RESULT,
+		}
+
+		messageToSend, err := json.Marshal(msg)
+		if err != nil {
+			fmt.Println("Error marshaling message:", err)
+			return
+		}
+		sender.send <- messageToSend
+
+		if sender.clientName != DEFAULT_BOT_NANE {
+			hasBotClient := false
+			for client := range room.Clients {
+				if client.clientName == DEFAULT_BOT_NANE {
+					hasBotClient = true
+					break
 				}
 			}
 
-			if message.MessageType == SKIP_QUESTION {
-				room, ok := h.rooms[message.RoomID]
-				if !ok {
-					// Room not found
-					fmt.Println("room not found")
-					continue
-				}
-
-				if room.GameState.CurrentIndex+1 == len(room.GameState.Questions) {
-					//finishing the game
-					var firstClient *Client
-					var secondClient *Client
-
-					for client := range room.Clients {
-						if firstClient == nil {
-							firstClient = client
-						} else {
-							secondClient = client
-						}
-					}
-					h.finishTheGame(room, firstClient, secondClient, true)
-					continue
-				}
-
-				room.GameState.CurrentIndex = room.GameState.CurrentIndex + 1
-				h.rooms[message.RoomID] = room
-
-				sendQuestion(room.GameState.Questions[room.GameState.CurrentIndex], room.Clients)
-			}
-
-		case <-time.After(time.Second):
-			for questionType, queue := range h.questionTypeQueues { // Adjust the interval as needed
-				if len(queue) == 1 {
-					client := queue[0]
-					if time.Since(client.joinedAt) >= DEFAULT_BOT_TIME_WAIT {
-						// Create a bot client
-						botClient := h.createBotClient(questionType)
-
-						// Add bot to the queue
-						h.questionTypeQueues[questionType] = append(h.questionTypeQueues[questionType], botClient)
-					}
-				} else if len(queue) >= 2 {
-					// Take the first two clients from the queue
-					client1 := queue[0]
-					client2 := queue[1]
-
-					h.questionTypeQueues[questionType] = queue[2:]
-
-					room := client1.clientID.String() + client2.clientID.String() + questionType
-
-					// Notify clients that they have found a match
-					msg := Message{
-						RoomID:      room,
-						Message:     client2.clientName,
-						MessageType: MATCH_FOUND,
-					}
-
-					// Send match found messages (adjust for potential bot client)
-					if client1.conn != nil {
-						messageToSend, _ := json.Marshal(msg)
-						client1.send <- messageToSend
-					}
-
-					msg.Message = client1.clientName
-
-					if client2.conn != nil {
-						messageToSend, _ := json.Marshal(msg)
-						client2.send <- messageToSend
-					}
-
-					client2.queueName = ""
-					client1.queueName = ""
-
-					connections := make(map[*Client]bool)
-					connections[client1] = true
-					connections[client2] = true
-
-					// Query questions
-					questions, err := utils.GetRandomQuestionsByType(questionType, 10)
-					if err != nil {
-						fmt.Println("Error getting questions:", err)
-						continue
-					}
-
-					h.rooms[room] = Room{
-						Clients: connections,
-						GameState: GameState{
-							Questions:         questions,
-							ClientRightCounts: make(map[uuid.UUID]int),
-						},
-					}
-
-					sendQuestion(questions[0], connections)
-				}
+			// If there's a bot, simulate its answer with a delay
+			if hasBotClient {
+				go func(r *Room, roomID string) {
+					// Random delay before bot answers (between 1-4 seconds)
+					time.Sleep(time.Duration(rand.Intn(3000)+1000) * time.Millisecond)
+					h.simulateBotAnswer(r, roomID)
+				}(room, message.RoomID)
 			}
 		}
 	}
 }
 
-func sendQuestion(question models.Question, clients map[*Client]bool) {
+func (h *ConcurrentHub) handleSkipQuestion(message *Message) {
+	roomInterface, ok := h.rooms.Load(message.RoomID)
+	if !ok {
+		fmt.Println("room not found")
+		return
+	}
+
+	room := roomInterface.(*Room)
+	room.mutex.Lock()
+	defer room.mutex.Unlock()
+
+	if room.GameState.CurrentIndex+1 == len(room.GameState.Questions) {
+		// Finishing the game
+		var firstClient *Client
+		var secondClient *Client
+
+		for client := range room.Clients {
+			if firstClient == nil {
+				firstClient = client
+			} else {
+				secondClient = client
+			}
+		}
+		h.finishTheGame(room, firstClient, secondClient, true)
+		return
+	}
+
+	room.GameState.CurrentIndex = room.GameState.CurrentIndex + 1
+
+	h.sendQuestion(room.GameState.Questions[room.GameState.CurrentIndex], room.Clients)
+}
+
+func (h *ConcurrentHub) handleMatchmaking() {
+	defer h.wg.Done()
+
+	for {
+		select {
+		case <-h.matchmakingTicker.C:
+			h.processMatchmaking()
+		case <-h.shutdown:
+			return
+		}
+	}
+}
+
+func (h *ConcurrentHub) processMatchmaking() {
+	h.queueMutex.Lock()
+	defer h.queueMutex.Unlock()
+
+	h.questionTypeQueues.Range(func(key, value interface{}) bool {
+		questionType := key.(string)
+		queue := value.([]*Client)
+		println(len(queue))
+		if len(queue) == 1 {
+			println(queue[0].clientName)
+			println(queue[0].clientName)
+		}
+
+		if len(queue) == 1 {
+			client := queue[0]
+			if time.Since(client.joinedAt) >= DEFAULT_BOT_TIME_WAIT {
+				// Create a bot client
+				botClient := h.createBotClient(questionType)
+
+				// Add bot to the queue
+				queue = append(queue, botClient)
+				h.questionTypeQueues.Store(questionType, queue)
+				println("client with name " + client.clientName + " is playing bot")
+			}
+		} else if len(queue) >= 2 {
+			// Take the first two clients from the queue
+			client1 := queue[0]
+			client2 := queue[1]
+
+			// Update queue
+			h.questionTypeQueues.Store(questionType, queue[2:])
+
+			// Create match
+			h.createMatch(client1, client2, questionType)
+			println("client with name " + client1.clientName + " is playing real player player" + client2.clientName)
+		}
+		return true
+	})
+}
+
+func (h *ConcurrentHub) createMatch(client1, client2 *Client, questionType string) {
+	room := client1.clientID.String() + client2.clientID.String() + questionType
+
+	// Notify clients that they have found a match
+	msg := Message{
+		RoomID:      room,
+		Message:     client2.clientName,
+		ClientID:    client1.clientID,
+		MessageType: MATCH_FOUND,
+	}
+
+	// Send match found messages
+	if client1.conn != nil {
+		messageToSend, _ := json.Marshal(msg)
+		client1.send <- messageToSend
+	}
+
+	msg.Message = client1.clientName
+	msg.ClientID = client2.clientID
+
+	if client2.conn != nil {
+		messageToSend, _ := json.Marshal(msg)
+		client2.send <- messageToSend
+	}
+
+	client2.queueName = ""
+	client1.queueName = ""
+
+	connections := make(map[*Client]bool)
+	connections[client1] = true
+	connections[client2] = true
+
+	println("created client1 and client2" + client1.clientName + client2.clientName)
+
+	// Query questions
+	questions, err := utils.GetRandomQuestionsByType(questionType, 10)
+	if err != nil {
+		fmt.Println("Error getting questions:", err)
+		return
+	}
+
+	newRoom := &Room{
+		Clients: connections,
+		GameState: GameState{
+			Questions:         questions,
+			ClientRightCounts: make(map[uuid.UUID]int),
+		},
+	}
+
+	h.rooms.Store(room, newRoom)
+
+	h.sendQuestion(questions[0], connections)
+}
+
+func (h *ConcurrentHub) sendQuestion(question models.Question, clients map[*Client]bool) {
 	stringQuestion, _ := json.Marshal(question)
 
 	for client := range clients {
@@ -301,14 +414,14 @@ func sendQuestion(question models.Question, clients map[*Client]bool) {
 	}
 }
 
-func (h *Hub) finishTheGame(room Room, sender *Client, anotherClient *Client, skippedLastQuestion bool) {
+func (h *ConcurrentHub) finishTheGame(room *Room, sender *Client, anotherClient *Client, skippedLastQuestion bool) {
 	var userResult int
 	var UserAnsweredLast bool
 
 	if skippedLastQuestion {
 		userResult = room.GameState.ClientRightCounts[sender.clientID]
 	} else {
-		userResult = room.GameState.ClientRightCounts[sender.clientID] + 2 //+1 cause he answered this question right as well
+		userResult = room.GameState.ClientRightCounts[sender.clientID] + 2
 		UserAnsweredLast = true
 	}
 
@@ -362,20 +475,19 @@ func (h *Hub) finishTheGame(room Room, sender *Client, anotherClient *Client, sk
 	h.unregister <- anotherClient
 }
 
-func (h *Hub) removeFromRooms(clientToRemove *Client) {
-	// Create a new map for updated rooms
-	updatedRooms := make(map[string]Room)
+func (h *ConcurrentHub) removeFromRooms(clientToRemove *Client) {
+	var roomsToDelete []string
 
-	// Iterate over each room
-	for roomID, room := range h.rooms {
+	h.rooms.Range(func(key, value interface{}) bool {
+		roomID := key.(string)
+		room := value.(*Room)
+
 		// Check if the clientToRemove is in the room
-		if !strings.Contains(roomID, clientToRemove.clientID.String()) {
-			// If the room ID doesn't contain the clientToRemove's clientID, include it in the updated map
-			updatedRooms[roomID] = room
-		} else {
+		if strings.Contains(roomID, clientToRemove.clientID.String()) {
+			room.mutex.Lock()
+
 			for anotherClientConn := range room.Clients {
 				if anotherClientConn.conn != clientToRemove.conn {
-
 					result := struct {
 						UserResult     int
 						OpponentResult int
@@ -399,25 +511,58 @@ func (h *Hub) removeFromRooms(clientToRemove *Client) {
 					UpdateUserPoints(clientToRemove.clientID, result.OpponentResult)
 					UpdateUserPoints(anotherClientConn.clientID, result.UserResult)
 
-					delete(h.clients, anotherClientConn)
-					break // Assuming there's only one other clientToRemove in the room
+					h.clients.Delete(anotherClientConn)
+					break
 				}
 			}
+
+			room.mutex.Unlock()
+			roomsToDelete = append(roomsToDelete, roomID)
 		}
+		return true
+	})
+
+	// Delete rooms outside of the Range loop
+	for _, roomID := range roomsToDelete {
+		h.rooms.Delete(roomID)
 	}
 
-	// Replace the original rooms with the updated map
-	h.rooms = updatedRooms
-	clientToRemove.conn.Close()
+	if clientToRemove.conn != nil {
+		clientToRemove.conn.Close()
+	}
 }
 
-func (h *Hub) removeFromMatchmakingQueue(client *Client) {
-	// Create a new queue without the client
+func (h *ConcurrentHub) removeFromMatchmakingQueue(client *Client) {
+	if client.queueName == "" {
+		return
+	}
+
+	h.queueMutex.Lock()
+	defer h.queueMutex.Unlock()
+
+	queueInterface, ok := h.questionTypeQueues.Load(client.queueName)
+	if !ok {
+		return
+	}
+
+	queue := queueInterface.([]*Client)
 	var updatedQueue []*Client
-	for _, c := range h.questionTypeQueues[client.queueName] {
+
+	for _, c := range queue {
 		if c.clientID != client.clientID {
 			updatedQueue = append(updatedQueue, c)
 		}
 	}
-	h.questionTypeQueues[client.queueName] = updatedQueue
+
+	h.questionTypeQueues.Store(client.queueName, updatedQueue)
+}
+
+func (h *ConcurrentHub) addToQueue(questionType string, client *Client) {
+	h.queueMutex.Lock()
+	defer h.queueMutex.Unlock()
+
+	queueInterface, _ := h.questionTypeQueues.LoadOrStore(questionType, []*Client{})
+	queue := queueInterface.([]*Client)
+	queue = append(queue, client)
+	h.questionTypeQueues.Store(questionType, queue)
 }

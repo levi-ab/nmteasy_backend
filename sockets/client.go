@@ -47,7 +47,7 @@ var upgrader = websocket.Upgrader{
 
 // Client is a middleman between the websocket connection and the hub.
 type Client struct {
-	hub            *Hub
+	hub            *ConcurrentHub
 	clientID       uuid.UUID //client id
 	clientName     string
 	queueName      string          //whether the client is in queue
@@ -108,9 +108,15 @@ func (c *Client) readPump() {
 		if targetMessage.MessageType == "join_matchmaking" {
 			// Set the client state to indicate they are in the matchmaking queue
 			c.queueName = targetMessage.Message
-
 			// Add the client to the matchmaking queue
-			c.hub.questionTypeQueues[targetMessage.Message] = append(c.hub.questionTypeQueues[targetMessage.Message], c)
+			println("client with name " + c.clientName + " is joining match")
+			if val, ok := c.hub.questionTypeQueues.Load(targetMessage.Message); ok {
+				clients := val.([]*Client)
+				clients = append(clients, c)
+				c.hub.questionTypeQueues.Store(targetMessage.Message, clients)
+			} else {
+				c.hub.questionTypeQueues.Store(targetMessage.Message, []*Client{c})
+			}
 			continue
 		}
 	}
@@ -164,7 +170,7 @@ func (c *Client) writePump() {
 }
 
 // ServeWs handles websocket requests from the peer.
-func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
+func ServeWs(hub *ConcurrentHub, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)

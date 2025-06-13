@@ -38,6 +38,11 @@ func New() http.Handler {
 	router.HandleFunc("/wrong-answer-questions/{lessonType}", middleware.Protected(GetWrongAnsweredQuestions)).Methods("GET")
 	router.HandleFunc("/image-questions/{lessonType}", middleware.Protected(GetImageQuestions)).Methods("GET")
 
+	router.HandleFunc("/shop/products", middleware.Protected(GetProducts)).Methods("GET")
+	router.HandleFunc("/shop/purchase", middleware.Protected(PurchaseProduct)).Methods("POST")
+	router.HandleFunc("/shop/inventory", middleware.Protected(GetUserInventory)).Methods("GET")
+	router.HandleFunc("/shop/activate-skin", middleware.Protected(ActivateSkin)).Methods("POST")
+
 	hub := sockets.NewHub()
 	go hub.Run()
 	router.HandleFunc("/ws/{token}", func(w http.ResponseWriter, r *http.Request) {
